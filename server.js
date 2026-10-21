@@ -36,6 +36,8 @@ const DEFAULTS = {
   미제출점수: 0,
   수학최대점수: 100,
   공동구매최소금액: 300,
+  예금최소금액: 100,
+  예금최대일수: 60,
 };
 const EDITABLE_SETTINGS = Object.keys(DEFAULTS);
 
@@ -72,11 +74,23 @@ const SEED_ITEMS = [
   ['I23', '쿠폰', '음악 신청권', 800, '쉬는 시간에 노래를 신청해요', 10, 2],
   ['I24', '쿠폰', '선생님과 점심', 1500, '선생님 옆자리에서 점심을 먹어요', 4, 1],
 ];
+// 이자율표 [일수, 이름, 1~5등급 이자율(%)]
+const SEED_RATES = [
+  [14, '2주', [4, 3, 2, 1, 1]],
+  [30, '1개월', [8, 7, 5, 3, 2]],
+  [60, '2개월', [14, 12, 9, 6, 3]],
+];
 const CATEGORIES = ['세금', '간식', '쿠폰'];
 const TREASURY_IN = ['소득세', '월세', '전기세', '건강보험료', '벌금', '자리판매', '상점수입', '공동구매', '기타수입'];
 const TREASURY_OUT = ['공무원월급', '은행이자', '보너스', '부동산개발', '기타지출'];
 
 async function ensureSeed() {
+  const rates = await db.collection('rates').limit(1).get();
+  if (rates.empty) {
+    const b = db.batch();
+    SEED_RATES.forEach((r) => b.set(db.collection('rates').doc(String(r[0])), { days: r[0], name: r[1], rates: r[2] }));
+    await b.commit();
+  }
   const jobs = await db.collection('jobs').limit(1).get();
   if (jobs.empty) {
     const b = db.batch();
@@ -738,6 +752,214 @@ app.post('/api/admin/groups/:id/cancel', guard('teacher'), wrap(async (req, res)
     return live.length;
   });
   res.json({ ok: true, message: count ? `목표를 취소하고 ${count}건을 환불했어요` : '목표를 취소했어요 (참여한 학생이 없었어요)' });
+}));
+
+
+// ======================================================================
+//  은행 (예금)
+//   · 가입 때 신용등급에 맞는 이자율이 정해지고, 만기일에 은행장/선생님이 지급해요
+//   · 만기 전 해지는 이자 없이 원금만. 이자는 국고에서 나가요.
+// ======================================================================
+const DAY_MS = 864e5;
+const fmtMD = (d) => { const k = kst(d).toISOString(); return `${Number(k.slice(5, 7))}/${Number(k.slice(8, 10))}`; };
+async function getRates() {
+  const snap = await db.collection('rates').get();
+  const out = {};
+  snap.docs.forEach((d) => (out[d.data().days] = d.data()));
+  return out;
+}
+function depositView(d, now) {
+  const x = d.data ? { id: d.id, ...d.data() } : d;
+  const maturity = x.maturity.toDate();
+  const left = Math.ceil((maturity - now) / DAY_MS);
+  const ended = x.status === '지급완료' || x.status === '중도해지';
+  return {
+    id: x.id, studentId: x.studentId, principal: x.principal, days: x.days, name: x.name, rate: x.rate,
+    start: fmtMD(x.createdAt.toDate()), end: fmtMD(maturity), status: x.status, interest: x.interest || 0,
+    left, matured: !ended && left <= 0, ended, expected: Math.round((x.principal * x.rate) / 100),
+  };
+}
+
+app.get('/api/bank', auth, wrap(async (req, res) => {
+  const id = targetId(req);
+  const [S, rates, info, depSnap] = await Promise.all([
+    getSettings(), getRates(), buildInfo(id), db.collection('deposits').where('studentId', '==', id).get(),
+  ]);
+  const max = Number(S.예금최대일수);
+  const now = new Date();
+  res.json({
+    balance: info.balance, debt: info.debt, currency: S.화폐단위, grade: info.credit.grade, min: Number(S.예금최소금액),
+    products: Object.values(rates).filter((r) => r.days <= max).sort((a, b) => a.days - b.days)
+      .map((r) => ({ days: r.days, name: r.name, rate: r.rates[info.credit.grade - 1] || 0, all: r.rates })),
+    deposits: depSnap.docs.map((d) => depositView(d, now)).sort((a, b) => b.start.localeCompare(a.start) || b.id.localeCompare(a.id)),
+  });
+}));
+
+app.post('/api/bank/deposit', auth, studentOnly, wrap(async (req, res) => {
+  const S = await getSettings();
+  const principal = toInt(req.body.amount, '금액을 넣어주세요');
+  const days = Number(req.body.days);
+  const min = Number(S.예금최소금액);
+  if (principal < min) throw new UserError(`최소 ${min.toLocaleString()} 이상 맡길 수 있어요`);
+  const rates = await getRates();
+  const product = rates[days];
+  if (!product || days > Number(S.예금최대일수)) throw new UserError('없는 예금 기간이에요');
+  const sid = req.user.id;
+  const grade = creditSummary(await creditRows(sid), S).grade;
+  const rate = product.rates[grade - 1] || 0;
+  const txId = String(req.body.txId || newId('D'));
+  const now = new Date();
+  const out = await db.runTransaction(async (t) => {
+    const dup = await t.get(db.collection('ledger').doc(txId));
+    const students = await loadStudents(t, [sid]);
+    if (dup.exists) return { duplicate: true };
+    stageEntry(t, students, { txId, studentId: sid, kind: '예금', amount: -principal, reason: `${product.name} 예금 (이자율 ${rate}%)`, by: sid }, Timestamp.fromDate(now));
+    t.set(db.collection('deposits').doc('D-' + txId), {
+      studentId: sid, principal, days, name: product.name, rate, createdAt: Timestamp.fromDate(now),
+      maturity: Timestamp.fromDate(new Date(now.getTime() + days * DAY_MS)), status: '예치중', interest: 0,
+    });
+    return { duplicate: false };
+  });
+  if (out.duplicate) return res.json({ ok: true, message: '이미 처리된 거래예요' });
+  res.json({ ok: true, message: `${principal.toLocaleString()}을 ${product.name} 맡겼어요. 이자율 ${rate}%` });
+}));
+
+// 중도 해지: 이자 없이 원금만
+async function cancelDeposit(depositId, who, onlyStudentId) {
+  await db.runTransaction(async (t) => {
+    const ref = db.collection('deposits').doc(String(depositId));
+    const d = await t.get(ref);
+    if (!d.exists) throw new UserError('예금을 찾을 수 없어요');
+    const x = d.data();
+    if (x.status === '지급완료') throw new UserError('이미 지급된 예금이에요');
+    if (x.status === '중도해지') throw new UserError('이미 해지된 예금이에요');
+    if (onlyStudentId && x.studentId !== onlyStudentId) throw new UserError('내 예금만 해지할 수 있어요');
+    const students = await loadStudents(t, [x.studentId]);
+    const at = Timestamp.now();
+    stageEntry(t, students, { txId: `DC-${d.id}`, studentId: x.studentId, kind: '예금해지', amount: x.principal, reason: `${x.name} 예금 중도해지 (이자 없음)`, by: who }, at);
+    t.update(ref, { status: '중도해지', interest: 0, doneAt: at, doneBy: who });
+    return x.principal;
+  });
+}
+app.post('/api/bank/cancel', auth, studentOnly, wrap(async (req, res) => {
+  await cancelDeposit(req.body.depositId, req.user.id, req.user.id);
+  res.json({ ok: true, message: '중도해지했어요. 원금만 돌려받았어요 (이자 없음)' });
+}));
+
+app.get('/api/admin/bank', guard('은행관리'), wrap(async (req, res) => {
+  const [S, rates, depSnap, sSnap, tSnap] = await Promise.all([
+    getSettings(), getRates(), db.collection('deposits').get(), db.collection('students').get(), db.collection('treasury').get(),
+  ]);
+  const names = {};
+  sSnap.docs.forEach((d) => (names[d.id] = d.data().name));
+  const now = new Date();
+  const all = depSnap.docs.map((d) => ({ ...depositView(d, now), name2: names[d.data().studentId] || d.data().studentId }));
+  const view = (x) => ({ ...x, who: x.name2 });
+  const active = all.filter((x) => !x.ended);
+  res.json({
+    currency: S.화폐단위,
+    matured: active.filter((x) => x.matured).map(view),
+    holding: active.filter((x) => !x.matured).sort((a, b) => a.left - b.left).map(view),
+    past: all.filter((x) => x.ended).slice(-15).reverse().map(view),
+    total: active.reduce((s, x) => s + x.principal, 0),
+    treasury: tSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0),
+    rates: Object.values(rates).sort((a, b) => a.days - b.days),
+  });
+}));
+app.post('/api/admin/bank/payout', guard('은행관리'), wrap(async (req, res) => {
+  const who = req.user.role === 'teacher' ? '관리자' : req.user.id;
+  const msg = await db.runTransaction(async (t) => {
+    const ref = db.collection('deposits').doc(String(req.body.depositId));
+    const d = await t.get(ref);
+    if (!d.exists) throw new UserError('예금을 찾을 수 없어요');
+    const x = d.data();
+    if (x.status === '지급완료') throw new UserError('이미 지급된 예금이에요');
+    if (x.status === '중도해지') throw new UserError('이미 해지된 예금이에요');
+    if (x.maturity.toDate() > new Date()) throw new UserError('아직 만기가 안 됐어요');
+    const interest = Math.round((x.principal * x.rate) / 100);
+    const students = await loadStudents(t, [x.studentId]);
+    const at = Timestamp.now();
+    stageEntry(t, students, { txId: `DP-${d.id}`, studentId: x.studentId, kind: '예금만기', amount: x.principal + interest, reason: `${x.name} 예금 원금+이자`, by: who }, at);
+    if (interest) stageTreasury(t, `DP-${d.id}:T`, { kind: '은행이자', amount: -interest, reason: `예금 이자 (${students.get(x.studentId).name})`, studentId: x.studentId, by: who }, at);
+    t.update(ref, { status: '지급완료', interest, doneAt: at, doneBy: who });
+    return `원금 ${x.principal.toLocaleString()} + 이자 ${interest.toLocaleString()} 지급 완료`;
+  });
+  res.json({ ok: true, message: msg });
+}));
+app.post('/api/admin/bank/cancel', guard('은행관리'), wrap(async (req, res) => {
+  await cancelDeposit(req.body.depositId, req.user.role === 'teacher' ? '관리자' : req.user.id, null);
+  res.json({ ok: true, message: '중도해지했어요. 원금만 돌려줬어요 (이자 없음)' });
+}));
+app.post('/api/admin/bank/rates', guard('은행관리'), wrap(async (req, res) => {
+  const nums = (req.body.rates || []).map(Number);
+  if (nums.length !== 5 || nums.some((n) => !Number.isFinite(n) || n < 0 || n > 50)) throw new UserError('0~50 사이 숫자 5개를 넣어주세요');
+  const ref = db.collection('rates').doc(String(req.body.days));
+  if (!(await ref.get()).exists) throw new UserError('그런 기간이 없어요');
+  await ref.update({ rates: nums });
+  res.json({ ok: true, message: '이자율을 바꿨어요' });
+}));
+
+
+// ======================================================================
+//  직업소
+// ======================================================================
+app.get('/api/jobs', auth, wrap(async (req, res) => {
+  const id = targetId(req);
+  const [S, jobs, info, sSnap] = await Promise.all([getSettings(), getJobs(), buildInfo(id), db.collection('students').get()]);
+  const count = {};
+  sSnap.docs.forEach((d) => { const j = d.data().jobId; if (j) count[j] = (count[j] || 0) + 1; });
+  res.json(Object.values(jobs).sort((a, b) => (a.order || 0) - (b.order || 0)).map((j) => {
+    const creditOk = info.credit.grade <= j.minCredit;
+    const mathOk = info.mathGrade === null ? false : info.mathGrade <= j.minMath;
+    const filled = count[j.id] || 0;
+    return {
+      id: j.id, name: j.name, salary: j.salary, net: netPay(j.salary, S), minCredit: j.minCredit, minMath: j.minMath, desc: j.desc,
+      capacity: j.capacity, count: filled, open: j.capacity ? filled < j.capacity : true, source: j.source,
+      eligible: creditOk && mathOk, mine: info.job ? info.job.id === j.id : false,
+    };
+  }));
+}));
+
+app.get('/api/admin/assign', guard('teacher'), wrap(async (req, res) => {
+  const [S, jobs, sSnap, cSnap] = await Promise.all([getSettings(), getJobs(), db.collection('students').get(), db.collection('credits').get()]);
+  const by = {};
+  cSnap.docs.forEach((d) => { const x = d.data(); (by[x.studentId] = by[x.studentId] || []).push(x); });
+  const students = sSnap.docs.map((d) => ({
+    id: d.id, name: d.data().name, jobId: d.data().jobId || '',
+    creditGrade: creditSummary(by[d.id] || [], S).grade, mathGrade: mathGrade(d.data().math, S),
+  })).sort((a, b) => Number(a.id) - Number(b.id));
+  res.json({
+    students,
+    jobs: Object.values(jobs).sort((a, b) => (a.order || 0) - (b.order || 0)).map((j) => ({
+      id: j.id, name: j.name, salary: j.salary, minCredit: j.minCredit, minMath: j.minMath, capacity: j.capacity,
+      assigned: students.filter((s) => s.jobId === j.id).map((s) => s.id),
+    })),
+  });
+}));
+// 한 직업에 학생들을 한꺼번에 배정: 체크한 학생은 이 직업으로, 체크 풀린 기존 담당자는 직업 없음으로
+app.post('/api/admin/jobs/:id/assign', guard('teacher'), wrap(async (req, res) => {
+  const jobs = await getJobs();
+  const job = jobs[req.params.id];
+  if (!job) throw new UserError('그런 직업이 없어요');
+  const ids = uniqIds(req.body.ids);
+  if (job.capacity && ids.length > job.capacity) throw new UserError(`${job.name}은(는) 정원 ${job.capacity}명까지예요`);
+  const sSnap = await db.collection('students').get();
+  const valid = new Set(sSnap.docs.map((d) => d.id));
+  const batch = db.batch();
+  sSnap.docs.forEach((d) => {
+    const mine = ids.includes(d.id) && valid.has(d.id);
+    if (mine && d.data().jobId !== job.id) batch.update(d.ref, { jobId: job.id });
+    else if (!mine && d.data().jobId === job.id) batch.update(d.ref, { jobId: '' });
+  });
+  await batch.commit();
+  res.json({ ok: true, message: `${job.name} 배정을 저장했어요 (${ids.length}명)` });
+}));
+app.post('/api/admin/jobs/clear', guard('teacher'), wrap(async (req, res) => {
+  const sSnap = await db.collection('students').get();
+  const batch = db.batch();
+  sSnap.docs.forEach((d) => { if (d.data().jobId) batch.update(d.ref, { jobId: '' }); });
+  await batch.commit();
+  res.json({ ok: true, message: '모든 학생의 직업을 비웠어요' });
 }));
 
 // ======================================================================
