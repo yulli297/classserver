@@ -187,8 +187,8 @@ class UserError extends Error {}
 const hashPin = (pin) => crypto.createHash('sha256').update(SECRET + String(pin)).digest('hex');
 const DEFAULT_PIN = '1111';
 
-function makeToken(payload) {
-  const body = Buffer.from(JSON.stringify({ ...payload, exp: Date.now() + 1000 * 60 * 60 * 12 })).toString('base64url');
+function makeToken(payload, hours = 12) {
+  const body = Buffer.from(JSON.stringify({ ...payload, exp: Date.now() + 1000 * 60 * 60 * hours })).toString('base64url');
   const sig = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
   return `${body}.${sig}`;
 }
@@ -315,7 +315,7 @@ app.post('/api/login', wrap(async (req, res) => {
   }
   const doc = await db.collection('students').doc(String(id)).get();
   if (!doc.exists || doc.data().pinHash !== hashPin(pin)) throw new UserError('번호 또는 비밀번호가 달라요');
-  res.json({ token: makeToken({ role: 'student', id: doc.id }), role: 'student' });
+  res.json({ token: makeToken({ role: 'student', id: doc.id }, 24 * 60), role: 'student' });
 }));
 
 app.post('/api/pin', auth, studentOnly, wrap(async (req, res) => {
