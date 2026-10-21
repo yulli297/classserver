@@ -119,6 +119,26 @@ const CATEGORIES = ['세금', '간식', '쿠폰'];
 const TREASURY_IN = ['소득세', '월세', '전기세', '건강보험료', '벌금', '자리판매', '상점수입', '공동구매', '기타수입'];
 const TREASURY_OUT = ['공무원월급', '은행이자', '보너스', '부동산개발', '기타지출'];
 
+// 이미 만들어진 예금 상품을 1주·2주·1달로 맞춰요 (이름에서 일수를 다시 읽고, 1달이 없으면 한 번만 추가)
+async function migrateBank() {
+  const mref = db.collection('meta').doc('migrations');
+  const m = await mref.get();
+  if (m.exists && m.data().bank3) return;
+  const snap = await db.collection('rates').get();
+  const have = new Set(snap.docs.map((d) => Number(d.data().days)));
+  const b = db.batch();
+  snap.docs.forEach((d) => {
+    const x = d.data(), nd = daysFromName(x.name, Number(x.days));
+    if (nd !== Number(x.days) && !have.has(nd)) { b.set(db.collection('rates').doc(String(nd)), { ...x, days: nd }); b.delete(d.ref); have.delete(Number(x.days)); have.add(nd); }
+    else if (nd !== Number(x.days)) b.delete(d.ref);
+  });
+  if (!have.has(30)) b.set(db.collection('rates').doc('30'), { days: 30, name: '1달', rates: [15, 13, 11, 7, 5] });
+  const sref = db.collection('meta').doc('settings'), sd = await sref.get();
+  if (sd.exists && Number(sd.data().예금최대일수) < 30) b.set(sref, { 예금최대일수: 60 }, { merge: true });
+  b.set(mref, { bank3: true }, { merge: true });
+  await b.commit();
+  clearCaches();
+}
 async function ensureSeed() {
   const rates = await db.collection('rates').limit(1).get();
   if (rates.empty) {
@@ -126,6 +146,7 @@ async function ensureSeed() {
     SEED_RATES.forEach((r) => b.set(db.collection('rates').doc(String(r[0])), { days: r[0], name: r[1], rates: r[2] }));
     await b.commit();
   }
+  await migrateBank();
   const jobs = await db.collection('jobs').limit(1).get();
   if (jobs.empty) {
     const b = db.batch();
