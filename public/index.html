@@ -1,408 +1,931 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>돼지공주나라</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap">
 <style>
-  * { box-sizing: border-box; }
-  body { margin: 0; font-family: 'Malgun Gothic', sans-serif; background: #fdf3f7; color: #43283a; }
-  button { background: #ff6b9a; color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; font-size: 15px; cursor: pointer; }
-  button.sub { background: #b88ca0; }
-  button.tm { background: #fff; color: #c2386a; border: 2px solid #fff; font-weight: bold; }
-  button.tm.on { background: #c2386a; color: #fff; }
-  button:disabled { opacity: .45; cursor: default; }
-  input, textarea, select { padding: 8px; border: 1px solid #e3b5c8; border-radius: 8px; font-size: 15px; font-family: inherit; }
+:root { --ink:#191F28; --sub:#6B7684; --blue:#3182F6; --blue-d:#1B64DA; --blue-s:#E8F3FF; --bg:#F2F4F6; --line:#E5E8EB; --red:#F04452; --green:#00B26B; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Noto Sans KR', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+button { font-family: inherit; }
 
-  header { background: #43283a; color: #fff; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
-  header h1 { margin: 0; font-size: 20px; }
-  .chip { background: #ff8fb1; border-radius: 12px; padding: 3px 10px; font-size: 13px; margin-left: 8px; }
-  .hdr-right { display: flex; gap: 8px; align-items: center; }
+/* ---------- 로그인 ---------- */
+.login { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 24px 16px; }
+.login .logo { width: 56px; height: 56px; font-size: 26px; border-radius: 18px; }
+.login h1 { margin: 0; font-size: 26px; font-weight: 800; }
+.login p { margin: -6px 0 4px; color: var(--sub); font-size: 15px; }
+.lbox { width: 100%; max-width: 340px; background: #fff; border-radius: 22px; padding: 22px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 10px 30px rgba(25,31,40,.08); }
+.lbox input { width: 100%; height: 52px; border: 1.5px solid var(--line); border-radius: 14px; padding: 0 16px; font-size: 17px; font-family: inherit; background: #F9FAFB; }
+.lbox input:focus { outline: 3px solid var(--blue); outline-offset: 1px; background: #fff; }
+.linkbtn { background: none; border: 0; color: var(--sub); font-size: 14px; cursor: pointer; padding: 8px; min-height: 44px; }
+.err { color: var(--red); font-size: 14px; font-weight: 500; min-height: 18px; margin: 0; text-align: center; }
 
-  .login { max-width: 360px; margin: 60px auto; text-align: center; background: #fff; border-radius: 16px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
-  .login input { width: 100%; margin: 6px 0; }
+/* ---------- 바깥 틀 ---------- */
+.stage { min-height: 100vh; padding: 0 16px 48px; }
+.top { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 22px 0 18px; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 800; letter-spacing: -0.3px; }
+.logo { width: 34px; height: 34px; border-radius: 11px; background: var(--blue); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; }
+.top-r { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chip { font-size: 13px; font-weight: 700; color: var(--blue-d); background: var(--blue-s); border-radius: 999px; padding: 6px 12px; }
+.chip.gray { color: #4E5968; background: var(--line); font-weight: 500; }
+.ghost { font-family: inherit; font-size: 14px; font-weight: 500; color: #4E5968; background: #fff; border: 0; border-radius: 12px; padding: 0 14px; height: 44px; min-width: 44px; cursor: pointer; }
+.asel { height: 44px; border: 0; border-radius: 12px; background: #fff; padding: 0 12px; font-family: inherit; font-size: 14px; color: #4E5968; max-width: 200px; }
 
-  .board { max-width: 1100px; margin: 16px auto; padding: 0 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 14px; }
-  .banner { background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
-  .banner.wide { grid-column: 1 / -1; }
-  .bhead { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; color: #fff; }
-  .bhead h2 { margin: 0; font-size: 18px; }
-  .c-wallet { background: #ff7fa8; } .c-shop { background: #f5a04a; } .c-ledger { background: #7a8cf0; }
-  .bbody { padding: 16px; }
-  .panel { border-top: 3px dashed #f0c4d4; background: #fff7fa; padding: 14px 16px; }
-  .panel h3 { margin: 12px 0 6px; font-size: 16px; }
-  .panel h3:first-child { margin-top: 0; }
+/* ---------- 서류철 + 포스트잇 탭 ---------- */
+.wrap { max-width: 1120px; margin: 0 auto; display: flex; align-items: flex-start; }
+.tabs { display: flex; flex-direction: column; gap: 14px; padding-top: 44px; margin-right: -18px; position: relative; flex: 0 0 auto; }
+.tab { position: relative; z-index: 20; width: 124px; height: 58px; border: 0; cursor: pointer; text-align: left; padding: 0 12px 0 18px; font-size: 15px; font-weight: 700; color: var(--ink); letter-spacing: -0.2px; border-radius: 4px 12px 12px 4px; box-shadow: 0 1px 1px rgba(25,31,40,.10), 0 6px 14px rgba(25,31,40,.10); transition: transform .2s ease, box-shadow .2s ease; background-image: linear-gradient(to right, rgba(25,31,40,.10), rgba(25,31,40,0) 14px); }
+.tab::after { content: ''; position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; border-radius: 12px 0 4px 0; background: linear-gradient(135deg, rgba(255,255,255,0) 50%, rgba(25,31,40,.10) 50%); }
+.tab:nth-child(odd) { transform: rotate(-1.4deg); }
+.tab:nth-child(even) { transform: rotate(1.1deg); }
+.tab:hover { transform: translateX(-3px) rotate(0deg); }
+.tab.on:hover { transform: translateX(16px) rotate(0deg); }
+.tab.on { z-index: 40; transform: translateX(16px) rotate(0deg); box-shadow: 0 1px 1px rgba(25,31,40,.12), 0 10px 22px rgba(25,31,40,.18); }
+.tab:focus-visible, .btn:focus-visible, .ghost:focus-visible, .chipbtn:focus-visible, .tm:focus-visible, .seg:focus-visible, .field input:focus-visible, .field textarea:focus-visible, .field select:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.folder { flex: 1 1 0; min-width: 0; position: relative; background: var(--line); border-radius: 28px; box-shadow: 0 1px 0 rgba(25,31,40,.04), 0 18px 40px rgba(25,31,40,.10); overflow: hidden; }
+.folder::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 38px; z-index: 30; background: linear-gradient(to right, #CDD2D8, #DADEE3 70%, #E5E8EB); pointer-events: none; }
+.stack { display: grid; margin-left: 38px; min-height: 780px; perspective: 2200px; perspective-origin: 0% 40%; }
+.leaf { grid-area: 1 / 1; position: relative; background: #fff; border-radius: 0 28px 28px 0; padding: 40px 44px 48px 40px; transform-origin: left center; backface-visibility: hidden; -webkit-backface-visibility: hidden; visibility: hidden; pointer-events: none; transition: transform .85s cubic-bezier(.45,.05,.2,1), opacity .2s linear 0s, visibility 0s linear .85s; min-width: 0; }
+.leaf::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(to left, rgba(25,31,40,0) 30%, rgba(25,31,40,.28)); opacity: 0; transition: opacity .6s ease; pointer-events: none; }
+.leaf.cur { visibility: visible; pointer-events: auto; transition: transform .85s cubic-bezier(.45,.05,.2,1), opacity .2s linear 0s, visibility 0s linear 0s; }
+.leaf.gone { transform: rotateY(-112deg); opacity: 0; transition: transform .85s cubic-bezier(.45,.05,.2,1), opacity .3s linear .5s, visibility 0s linear .85s; }
+.leaf.gone::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .leaf, .leaf.cur, .leaf.gone, .tab { transition: none !important; } }
 
-  .balance { font-size: 40px; font-weight: bold; color: #e0447c; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
-  .item { border: 2px solid #ffe0b8; border-radius: 12px; padding: 12px; text-align: center; }
-  .item b { display: block; margin-bottom: 4px; }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  td, th { padding: 5px; border-bottom: 1px solid #f3d6e1; text-align: center; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
-  .plus { color: #1e8e5a; } .minus { color: #d33; }
-  .muted { color: #8a6f7e; font-size: 14px; }
-  .treasury { font-size: 18px; font-weight: bold; color: #4a56c4; }
-  .scroll { max-height: 280px; overflow-y: auto; }
-  .hidden { display: none; }
-  .msg { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #43283a; color: #fff; padding: 10px 20px; border-radius: 20px; display: none; z-index: 9; }
+/* ---------- 화면 안쪽 ---------- */
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 26px; }
+.eyebrow { margin: 0 0 6px; font-size: 14px; font-weight: 500; color: var(--sub); }
+h1 { margin: 0; font-size: 28px; line-height: 1.35; font-weight: 800; letter-spacing: -0.6px; }
+h2 { margin: 0 0 14px; font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+h3 { margin: 0 0 10px; font-size: 16px; font-weight: 700; }
+.tm { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border-radius: 12px; border: 0; cursor: pointer; font-size: 14px; font-weight: 700; background: var(--bg); color: #4E5968; }
+.tm.on { background: var(--ink); color: #fff; }
+.hero { background: #F9FAFB; border-radius: 22px; padding: 26px 28px 24px; }
+.hero small { font-size: 14px; color: var(--sub); font-weight: 500; }
+.big { margin: 6px 0 18px; font-size: 44px; font-weight: 800; letter-spacing: -1.2px; line-height: 1.15; }
+.big span { font-size: 22px; font-weight: 700; margin-left: 4px; color: #4E5968; }
+.big.debt { color: var(--red); }
+.notice { background: #FFF0F1; color: #C9303C; border-radius: 14px; padding: 12px 16px; font-size: 14px; margin-bottom: 14px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.stat { background: #fff; border-radius: 16px; padding: 14px 16px; border: 0; text-align: left; font-family: inherit; color: inherit; }
+button.stat { cursor: pointer; }
+.stat small { display: block; font-size: 13px; color: var(--sub); margin-bottom: 4px; }
+.stat b { font-size: 20px; font-weight: 800; letter-spacing: -0.4px; }
+.stat i { display: block; font-style: normal; font-size: 12px; color: var(--sub); margin-top: 2px; }
+.row-btn { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn { height: 52px; padding: 0 22px; border-radius: 14px; border: 0; font-size: 16px; font-weight: 700; cursor: pointer; background: var(--blue); color: #fff; min-width: 44px; }
+.btn.sec { background: var(--blue-s); color: var(--blue-d); }
+.btn.gray { background: var(--bg); color: #4E5968; }
+.btn.red { background: var(--red); }
+.btn.small { height: 44px; font-size: 14px; padding: 0 16px; border-radius: 12px; }
+.btn.tiny { height: 36px; font-size: 13px; padding: 0 12px; border-radius: 10px; }
+.btn:disabled { background: #D1D6DB; color: #8B95A1; cursor: default; }
+.list { margin-top: 28px; }
+.item { display: flex; align-items: center; gap: 14px; padding: 14px 0; }
+.ic { width: 44px; height: 44px; border-radius: 15px; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; flex: 0 0 44px; }
+.ic.in { background: var(--blue-s); color: var(--blue-d); }
+.ic.out { background: #FFEEEE; color: #D22030; }
+.item .t { flex: 1 1 auto; min-width: 0; }
+.item .t b { display: block; font-size: 16px; font-weight: 600; }
+.item .t span { font-size: 13px; color: var(--sub); }
+.amt { font-size: 16px; font-weight: 700; white-space: nowrap; }
+.amt.p { color: var(--blue-d); } .amt.m { color: var(--ink); }
+.segs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.seg { height: 44px; padding: 0 18px; border-radius: 12px; border: 0; background: var(--bg); color: #4E5968; font-size: 15px; font-weight: 700; cursor: pointer; }
+.seg.on { background: var(--ink); color: #fff; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+.card { background: #F9FAFB; border-radius: 20px; padding: 20px; display: flex; flex-direction: column; gap: 6px; }
+.card .nm { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+.card .ds { font-size: 13px; color: var(--sub); min-height: 36px; }
+.card .pr { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; margin-top: 4px; }
+.card .st { font-size: 13px; color: var(--sub); }
+.badge { align-self: flex-start; font-size: 12px; font-weight: 700; color: var(--blue-d); background: var(--blue-s); border-radius: 6px; padding: 3px 8px; }
+.badge.gray { color: #4E5968; background: var(--line); }
+.badge.green { color: #00794A; background: #E6F7F0; }
+.badge.warn { color: #C9303C; background: #FFF0F1; }
+.empty { background: #F9FAFB; border-radius: 20px; padding: 40px 20px; text-align: center; color: var(--sub); }
+.note { font-size: 13px; color: var(--sub); margin: 0 0 14px; line-height: 1.6; }
+.bar { background: var(--bg); border-radius: 999px; height: 14px; overflow: hidden; margin: 8px 0; }
+.bar > i { display: block; height: 100%; background: linear-gradient(90deg, #3182F6, #1B64DA); border-radius: 999px; }
+
+/* ---------- 교사 모드 ---------- */
+.tpanel { margin-top: 30px; border: 2px dashed #B0B8C1; border-radius: 22px; padding: 24px; background: #fff; }
+.tpanel .lbl { display: inline-block; font-size: 12px; font-weight: 700; color: #fff; background: var(--ink); border-radius: 6px; padding: 3px 8px; margin-bottom: 12px; }
+.form { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 16px; }
+.field { display: flex; flex-direction: column; gap: 6px; flex: 1 1 160px; }
+.field label { font-size: 13px; font-weight: 500; color: #4E5968; }
+.field input, .field textarea, .field select { font-family: inherit; border: 1.5px solid var(--line); border-radius: 12px; padding: 0 14px; font-size: 16px; background: #F9FAFB; color: var(--ink); height: 48px; width: 100%; }
+.field textarea { height: 120px; padding: 12px 14px; resize: vertical; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.chipbtn { height: 44px; padding: 0 16px; border-radius: 999px; border: 1.5px solid var(--line); background: #fff; font-size: 14px; font-weight: 500; color: #4E5968; cursor: pointer; }
+.chipbtn.sel { background: var(--blue-s); border-color: var(--blue); color: var(--blue-d); font-weight: 700; }
+.mrow { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--bg); flex-wrap: wrap; }
+.mrow .t { flex: 1 1 200px; min-width: 0; font-size: 15px; font-weight: 500; }
+.mrow .t i { font-style: normal; font-size: 13px; color: var(--sub); display: block; margin-top: 2px; }
+.mrow .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.tscroll { overflow-x: auto; }
+table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tbl th { text-align: left; font-size: 12px; color: var(--sub); font-weight: 500; padding: 8px 8px; white-space: nowrap; }
+.tbl td { padding: 8px; border-top: 1px solid var(--bg); white-space: nowrap; vertical-align: middle; }
+.tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tbl .neg { color: var(--red); font-weight: 700; }
+.mini { height: 38px; width: 72px; border: 1.5px solid var(--line); border-radius: 10px; padding: 0 8px; font-family: inherit; font-size: 14px; background: #F9FAFB; }
+.mini.seat { width: 76px; }
+.sel-s { height: 38px; border: 1.5px solid var(--line); border-radius: 10px; padding: 0 6px; font-family: inherit; font-size: 13px; background: #F9FAFB; max-width: 150px; }
+.kv { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: 14px; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.cbox { background: #F9FAFB; border-radius: 16px; padding: 16px; }
+.mbar { display: flex; align-items: flex-end; gap: 10px; height: 90px; margin: 8px 0 4px; }
+.mbar div { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; font-size: 11px; color: var(--sub); }
+.mbar i { display: block; width: 100%; max-width: 38px; background: var(--blue); border-radius: 6px 6px 0 0; min-height: 2px; }
+
+/* ---------- 창 · 알림 ---------- */
+.modal { position: fixed; inset: 0; background: rgba(25,31,40,.45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 100; }
+.sheet { background: #fff; border-radius: 24px; padding: 26px; width: 100%; max-width: 380px; max-height: 90vh; overflow: auto; }
+.sheet.wide { max-width: 560px; }
+.sheet h3 { font-size: 19px; margin-bottom: 8px; }
+.sheet p { margin: 0 0 14px; color: var(--sub); font-size: 15px; line-height: 1.6; }
+.sheet .form { margin-bottom: 8px; }
+.sheet .row-btn { margin-top: 14px; }
+.sheet .row-btn .btn { flex: 1; }
+#busy { position: fixed; inset: 0; background: rgba(255,255,255,.7); z-index: 120; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; font-weight: 700; }
+.spin { width: 46px; height: 46px; border-radius: 50%; border: 5px solid var(--line); border-top-color: var(--blue); animation: sp .8s linear infinite; }
+@keyframes sp { to { transform: rotate(360deg); } }
+#toast { position: fixed; left: 50%; bottom: 30px; transform: translate(-50%, 90px); background: var(--ink); color: #fff; padding: 14px 22px; border-radius: 14px; font-size: 14px; font-weight: 600; opacity: 0; transition: .26s; z-index: 130; max-width: 88vw; text-align: center; }
+#toast.show { transform: translate(-50%, 0); opacity: 1; }
+#toast.bad { background: var(--red); }
+
+@media (max-width: 760px) {
+  .wrap { flex-direction: column; }
+  .tabs { flex-direction: row; margin: 0 0 -22px 12px; padding-top: 0; overflow-x: auto; max-width: calc(100% - 12px); padding-bottom: 14px; }
+  .tab { width: auto; min-width: 110px; flex: 0 0 auto; height: 52px; border-radius: 12px 12px 4px 4px; }
+  .tab::after { display: none; }
+  .tab:hover { transform: translateY(-4px) rotate(0deg); }
+  .tab.on { transform: translateY(-6px) rotate(0deg); }
+  .folder { width: 100%; border-radius: 22px; flex: 0 0 auto; }
+  .folder::before { display: none; }
+  .stack { margin-left: 0; min-height: 0; }
+  .leaf { padding: 40px 20px 32px; border-radius: 22px; }
+  .big { font-size: 36px; }
+  h1 { font-size: 24px; }
+  .tpanel { padding: 18px; }
+}
 </style>
 </head>
 <body>
-<header>
-  <h1>🐷 돼지공주나라 <span id="roleChip" class="chip hidden"></span></h1>
-  <div class="hdr-right" id="hdrRight"></div>
-</header>
 
 <!-- 로그인 -->
-<div id="loginView" class="login">
-  <div class="row" style="justify-content:center">
-    <button id="tabStudent">학생</button>
-    <button id="tabTeacher" class="sub">선생님</button>
+<div id="login" class="login" hidden>
+  <span class="logo" aria-hidden="true">돼</span>
+  <h1 id="lname">돼지공주나라</h1>
+  <p>우리 반 행복 나라에 오신 걸 환영해요</p>
+  <form class="lbox" id="lform" autocomplete="off">
+    <input id="lnum" type="text" inputmode="numeric" placeholder="내 번호" aria-label="내 번호">
+    <input id="lpin" type="password" inputmode="numeric" maxlength="4" placeholder="비밀번호 (숫자 4자리)" aria-label="비밀번호">
+    <button class="btn" type="submit" id="lgo">들어가기</button>
+    <p class="err" id="lerr"></p>
+    <button class="linkbtn" type="button" id="lswitch">선생님으로 들어가기</button>
+  </form>
+</div>
+
+<!-- 앱 -->
+<div id="app" class="stage" hidden>
+  <header class="top">
+    <div class="brand"><span class="logo" aria-hidden="true">돼</span><span id="brandName">돼지공주나라</span></div>
+    <div class="top-r">
+      <select id="asSel" class="asel" aria-label="미리 볼 학생" hidden></select>
+      <span class="chip gray" id="whoChip"></span>
+      <button class="ghost" type="button" id="logout">나가기</button>
+    </div>
+  </header>
+  <div class="wrap">
+    <nav class="tabs" id="tabs" aria-label="메뉴"></nav>
+    <main class="folder">
+      <div class="stack" id="stack"></div>
+    </main>
   </div>
-  <div id="idBox"><input id="loginId" type="number" placeholder="번호"></div>
-  <input id="loginPin" type="password" placeholder="비밀번호 (처음엔 0000)">
-  <button id="loginBtn" style="width:100%;margin-top:8px">들어가기</button>
 </div>
 
-<!-- 공통 화면 (교사·학생 동일) -->
-<div id="mainView" class="board hidden">
-
-  <!-- 💖 내 지갑 -->
-  <section class="banner">
-    <div class="bhead c-wallet">
-      <h2>💖 내 지갑</h2>
-      <button class="tm hidden" id="tm-wallet" onclick="togglePanel('wallet')">교사 모드</button>
-    </div>
-    <div class="bbody" id="walletBody"></div>
-    <div class="panel hidden" id="p-wallet">
-      <h3>행복 지급 / 차감</h3>
-      <div class="row">
-        <input id="adjAmount" type="number" placeholder="금액 (차감은 -)" style="width:150px">
-        <input id="adjMemo" placeholder="사유" style="flex:1;min-width:120px">
-        <button onclick="adjust()">선택한 학생에게 적용</button>
-      </div>
-      <h3>학생 목록 · 직업 지정</h3>
-      <div class="row"><button class="sub" onclick="toggleAll('chkW')">전체 선택/해제</button></div>
-      <div class="scroll"><table id="rosW"></table></div>
-      <h3>학생 처음 등록</h3>
-      <div class="muted">한 줄에 한 명씩 적어요. 위에서부터 1번이고, 비밀번호는 0000이에요.</div>
-      <textarea id="seedNames" rows="3" style="width:100%;margin-top:6px" placeholder="김가온&#10;이나래"></textarea>
-      <button onclick="seed()" style="margin-top:6px">등록</button>
-    </div>
-  </section>
-
-  <!-- 🛒 상점 -->
-  <section class="banner">
-    <div class="bhead c-shop">
-      <h2>🛒 상점</h2>
-      <button class="tm hidden" id="tm-shop" onclick="togglePanel('shop')">교사 모드</button>
-    </div>
-    <div class="bbody"><div id="shop" class="grid"></div></div>
-    <div class="panel hidden" id="p-shop">
-      <h3>상품 추가</h3>
-      <div class="row">
-        <input id="itName" placeholder="상품 이름" style="flex:1;min-width:120px">
-        <input id="itPrice" type="number" placeholder="가격" style="width:90px">
-        <input id="itStock" type="number" placeholder="재고" style="width:90px">
-        <button onclick="addItem()">추가</button>
-      </div>
-      <h3>상품 관리</h3>
-      <table id="itTable"></table>
-    </div>
-  </section>
-
-  <!-- 📒 내역 · 정산 -->
-  <section class="banner wide">
-    <div class="bhead c-ledger">
-      <h2>📒 내역 · 정산</h2>
-      <button class="tm hidden" id="tm-ledger" onclick="togglePanel('ledger')">교사 모드</button>
-    </div>
-    <div class="bbody"><table id="logs"></table></div>
-    <div class="panel hidden" id="p-ledger">
-      <div>국고 잔액: <span class="treasury" id="treasury">-</span> 행복</div>
-
-      <h3>1) 대상 학생 선택</h3>
-      <div class="row"><button class="sub" onclick="toggleAll('chkL')">전체 선택/해제</button></div>
-      <div class="scroll"><table id="rosL"></table></div>
-
-      <div id="salaryBox">
-        <h3>2) 월급 지급 <span class="muted">(소득세 10%를 떼어 국고로, 빚이 있으면 월급에서 자동 상환)</span></h3>
-        <div class="row">
-          <input id="salAmount" type="number" placeholder="월급 금액" style="width:130px">
-          <input id="salMemo" placeholder="메모 (선택)" style="width:150px">
-          <button onclick="settle('salary')">월급 지급</button>
-        </div>
-      </div>
-
-      <h3>3) 월세 · 세금 · 벌금 징수 <span class="muted">(잔액이 부족해도 빚으로 처리, 전액 국고로)</span></h3>
-      <div class="row">
-        <input id="chName" placeholder="항목 (월세/세금/벌금)" value="월세" style="width:150px">
-        <input id="chAmount" type="number" placeholder="금액" value="30" style="width:100px">
-        <button onclick="settle('charge')">징수</button>
-      </div>
-
-      <h3>정산 결과</h3>
-      <div class="scroll"><table id="settleResult"></table></div>
-    </div>
-  </section>
-</div>
-
-<div id="msg" class="msg"></div>
+<div id="modal" class="modal" hidden><div class="sheet" id="sheet"></div></div>
+<div id="busy" hidden><div class="spin"></div><span id="busyText">처리 중이에요</span></div>
+<div id="toast" role="status"></div>
 
 <script>
-let token = localStorage.getItem('pig_token');
-let role = localStorage.getItem('pig_role');
-let loginRole = 'student';
-let me = null;          // 지금 화면에 보이는 학생 (학생 본인 또는 교사가 고른 학생)
-let items = [], roster = [];
-let viewId = '';        // 교사가 미리 보는 학생 번호
-const openPanels = { wallet: false, shop: false, ledger: false };
+'use strict';
+/* ====================================================================
+   도우미
+==================================================================== */
+const $ = (s, r) => (r || document).querySelector(s);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = (n) => Number(n || 0).toLocaleString('ko-KR');
+const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const val = (id) => { const e = document.getElementById(id); return e ? e.value : ''; };
 
-const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-function toast(t) { const m = $('msg'); m.textContent = t; m.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => (m.style.display = 'none'), 2400); }
+const TABS = [
+  { id: 'info', label: '기본정보', bg: '#FFE99A' },
+  { id: 'bank', label: '은행', bg: '#C9E4FF' },
+  { id: 'shop', label: '상점', bg: '#FFC9D4' },
+  { id: 'jobs', label: '직업소', bg: '#C8F1D4' },
+  { id: 'work', label: '직업 활동', bg: '#E3D0FF' },
+  { id: 'board', label: '우리반 보드', bg: '#FFD9B8' },
+];
 
-async function api(url, method = 'GET', body) {
-  const res = await fetch(url, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401) { logout(); throw new Error(data.error || '다시 로그인해 주세요'); }
-  if (!res.ok) throw new Error(data.error || '오류가 났어요');
-  return data;
-}
-
-// ---------- 권한 ----------
-function perms() {
-  if (role === 'teacher') return { teacher: true, shop: true, tax: true };
-  const jobs = (me && me.jobs) || [];
-  return { teacher: false, shop: jobs.includes('shop'), tax: jobs.includes('tax') };
-}
-
-// ---------- 로그인 ----------
-$('tabStudent').onclick = () => setRole('student');
-$('tabTeacher').onclick = () => setRole('teacher');
-function setRole(r) {
-  loginRole = r;
-  $('idBox').classList.toggle('hidden', r === 'teacher');
-  $('tabStudent').className = r === 'student' ? '' : 'sub';
-  $('tabTeacher').className = r === 'teacher' ? '' : 'sub';
-  $('loginPin').placeholder = r === 'teacher' ? '선생님 비밀번호' : '비밀번호 (처음엔 0000)';
-}
-$('loginBtn').onclick = async () => {
-  try {
-    const r = await api('/api/login', 'POST', { role: loginRole, id: $('loginId').value, pin: $('loginPin').value });
-    token = r.token; role = r.role;
-    localStorage.setItem('pig_token', token); localStorage.setItem('pig_role', role);
-    $('loginPin').value = '';
-    start();
-  } catch (e) { toast(e.message); }
+const st = {
+  token: null, role: null, perms: [], myId: '', myName: '', asId: '',
+  tab: 'info', info: null, history: null, shop: null, shopTab: '세금', groups: null,
+  tm: { info: false, shop: false }, sub: { info: 'students', shop: 'items' },
+  adm: { students: null, shop: null, groups: null, treasury: null, settings: null },
+  sel: new Set(), forms: {},
 };
-$('loginPin').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('loginBtn').click(); });
+const isTeacher = () => st.role === 'teacher';
+const can = (p) => isTeacher() || st.perms.includes(p);
+const cur = () => (st.info ? st.info.currency : '행복');
 
-function logout() {
-  token = null; role = null; me = null; viewId = '';
-  localStorage.removeItem('pig_token'); localStorage.removeItem('pig_role');
-  $('mainView').classList.add('hidden');
-  $('loginView').classList.remove('hidden');
-  $('hdrRight').innerHTML = ''; $('roleChip').classList.add('hidden');
+function saveToken() { try { if (st.token) sessionStorage.setItem('pigtoken', st.token); else sessionStorage.removeItem('pigtoken'); } catch (e) {} }
+function loadToken() { try { return sessionStorage.getItem('pigtoken'); } catch (e) { return null; } }
+
+let toastTimer;
+function toast(msg, bad) {
+  const t = $('#toast');
+  t.textContent = msg; t.className = 'show' + (bad ? ' bad' : '');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.className = ''), 2600);
 }
+function busy(on, text) { $('#busy').hidden = !on; if (text) $('#busyText').textContent = text; }
 
-async function start() {
-  $('loginView').classList.add('hidden');
-  $('mainView').classList.remove('hidden');
-  const chip = $('roleChip');
-  chip.textContent = role === 'teacher' ? '선생님' : '학생'; chip.classList.remove('hidden');
-  await loadAll();
+async function api(path, opt) {
+  opt = opt || {};
+  const r = await fetch(path, {
+    method: opt.method || 'GET',
+    headers: { 'Content-Type': 'application/json', ...(st.token ? { Authorization: 'Bearer ' + st.token } : {}) },
+    body: opt.body ? JSON.stringify(opt.body) : undefined,
+  });
+  let j = {};
+  try { j = await r.json(); } catch (e) {}
+  if (r.status === 401 && st.token) { logout(); throw new Error('다시 로그인해 주세요'); }
+  if (!r.ok) throw new Error(j.error || '서버에 문제가 생겼어요. 잠시 뒤 다시 해 주세요');
+  return j;
 }
+// 처리 중 표시 + 오류 알림을 한꺼번에
+async function run(text, fn) {
+  busy(true, text);
+  try { return await fn(); }
+  catch (e) { toast(e.message || '연결이 불안정해요', true); return null; }
+  finally { busy(false); }
+}
+const asQ = () => (isTeacher() ? '?as=' + encodeURIComponent(st.asId) : '');
 
-// ---------- 데이터 불러오기 ----------
-async function loadAll() {
+/* ---------- 창(모달) ---------- */
+function openModal(html, wide) {
+  $('#sheet').className = 'sheet' + (wide ? ' wide' : '');
+  $('#sheet').innerHTML = html;
+  $('#modal').hidden = false;
+  const f = $('#sheet input, #sheet select, #sheet textarea'); if (f) setTimeout(() => f.focus(), 50);
+}
+function closeModal() { $('#modal').hidden = true; $('#sheet').innerHTML = ''; }
+$('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
+
+/* ====================================================================
+   로그인 / 시작
+==================================================================== */
+let teacherLogin = false;
+$('#lswitch').onclick = () => {
+  teacherLogin = !teacherLogin;
+  $('#lnum').hidden = teacherLogin;
+  $('#lpin').placeholder = teacherLogin ? '선생님 비밀번호' : '비밀번호 (숫자 4자리)';
+  $('#lpin').maxLength = teacherLogin ? 40 : 4;
+  $('#lpin').value = '';
+  $('#lpin').type = 'password';
+  $('#lpin').inputMode = teacherLogin ? 'text' : 'numeric';
+  $('#lswitch').textContent = teacherLogin ? '학생으로 들어가기' : '선생님으로 들어가기';
+  $('#lerr').textContent = '';
+};
+$('#lform').onsubmit = async (e) => {
+  e.preventDefault();
+  $('#lerr').textContent = ''; $('#lgo').disabled = true;
   try {
-    if (role === 'student') me = await api('/api/me');
-    else me = viewId ? await api('/api/teacher/view/' + viewId) : null;
-    items = await api('/api/shop');
-    const p = perms();
-    roster = p.tax ? await api('/api/roster') : [];
-    renderAll();
-    if (p.tax && openPanels.ledger) loadTreasury();
-  } catch (e) { toast(e.message); }
+    const body = teacherLogin ? { role: 'teacher', pin: val('lpin') } : { role: 'student', id: val('lnum').trim(), pin: val('lpin') };
+    const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || '서버에 문제가 생겼어요');
+    st.token = j.token; saveToken();
+    await enter();
+  } catch (err) { $('#lerr').textContent = err.message; }
+  finally { $('#lgo').disabled = false; }
+};
+function logout() {
+  st.token = null; saveToken(); st.role = null; st.info = null; st.shop = null; st.groups = null; st.history = null;
+  st.adm = { students: null, shop: null, groups: null, treasury: null, settings: null };
+  st.tm = { info: false, shop: false }; st.tab = 'info';
+  closeModal(); $('#app').hidden = true; $('#login').hidden = false; $('#lpin').value = '';
 }
-async function loadTreasury() {
-  try { $('treasury').textContent = (await api('/api/treasury')).balance; } catch (e) { /* 권한 없으면 무시 */ }
+$('#logout').onclick = logout;
+
+async function enter() {
+  const w = await api('/api/whoami');
+  st.role = w.role; st.perms = w.perms || []; st.myId = w.id || ''; st.myName = w.name || '';
+  if (isTeacher()) {
+    const a = await api('/api/admin/students');
+    st.adm.students = a;
+    st.asId = (a.students[0] || {}).id || '';
+    if (!a.students.length) { st.tm.info = true; st.sub.info = 'register'; }
+  }
+  $('#login').hidden = true; $('#app').hidden = false;
+  buildFrame();
+  $('#whoChip').textContent = isTeacher() ? '선생님 · 학생 화면 미리보기' : st.myName + '님';
+  fillAsSel();
+  goTab('info', true);
+  loadInfo();
+}
+function fillAsSel() {
+  const sel = $('#asSel');
+  sel.hidden = !isTeacher();
+  if (!isTeacher()) return;
+  const ss = (st.adm.students || {}).students || [];
+  sel.innerHTML = ss.length ? ss.map((s) => `<option value="${esc(s.id)}"${s.id === st.asId ? ' selected' : ''}>${esc(s.id)}번 ${esc(s.name)}</option>`).join('') : '<option value="">학생 없음</option>';
+}
+$('#asSel').onchange = (e) => {
+  st.asId = e.target.value; st.info = null; st.history = null; st.shop = null; st.groups = null;
+  renderAll(); loadInfo(); if (st.tab === 'shop') loadShop();
+};
+
+/* ====================================================================
+   틀 (탭 + 종이)
+==================================================================== */
+function buildFrame() {
+  $('#tabs').innerHTML = TABS.map((t) => `<button type="button" class="tab" data-act="tab" data-id="${t.id}" style="background-color:${t.bg}">${t.label}</button>`).join('');
+  $('#stack').innerHTML = TABS.map((t) => `<section class="leaf" id="lf-${t.id}" aria-label="${t.label}"></section>`).join('');
+  renderAll();
+}
+function goTab(id, first) {
+  st.tab = id;
+  const idx = TABS.findIndex((t) => t.id === id);
+  document.querySelectorAll('.tab').forEach((b, i) => {
+    b.classList.toggle('on', i === idx);
+    b.setAttribute('aria-current', i === idx ? 'page' : 'false');
+  });
+  TABS.forEach((t, i) => {
+    const lf = $('#lf-' + t.id);
+    lf.className = 'leaf ' + (i < idx ? 'gone' : i === idx ? 'cur' : '');
+    lf.style.zIndex = String(100 - i);
+  });
+  if (!first) {
+    if (id === 'shop' && !st.shop) loadShop();
+    if (id === 'shop' && !st.groups && st.shopTab === '공동구매') loadGroups();
+    if (id === 'info' && !st.info) loadInfo();
+    if (window.innerWidth <= 760) window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+}
+function renderAll() { renderInfo(); renderShop(); renderPlaceholders(); }
+
+function leafHead(eyebrow, titleHtml, tmKey, tmAllowed) {
+  const on = st.tm[tmKey];
+  return `<div class="head"><div><p class="eyebrow">${eyebrow}</p><h1>${titleHtml}</h1></div>` +
+    (tmAllowed ? `<button type="button" class="tm ${on ? 'on' : ''}" data-act="tm" data-id="${tmKey}" aria-pressed="${on}">교사 모드 ${on ? '켜짐' : '꺼짐'}</button>` : '') + '</div>';
 }
 
-// ---------- 화면 그리기 ----------
-function renderAll() {
-  renderHeader(); renderWallet(); renderShop(); renderLogs(); renderTeacherParts();
+/* ====================================================================
+   1. 기본정보
+==================================================================== */
+async function loadInfo() {
+  if (isTeacher() && !st.asId) { renderInfo(); return; }
+  try {
+    const [info, hist] = await Promise.all([api('/api/info' + asQ()), api('/api/history' + asQ() + (asQ() ? '&' : '?') + 'limit=30')]);
+    st.info = info; st.history = hist;
+  } catch (e) { toast(e.message, true); }
+  renderInfo();
 }
-function renderHeader() {
-  let h = '';
-  if (role === 'teacher') {
-    h += `<select id="viewSel" onchange="pickView(this.value)"><option value="">학생 화면 미리보기…</option>` +
-      roster.map((s) => `<option value="${s.id}" ${s.id === viewId ? 'selected' : ''}>${s.id}번 ${esc(s.name)}</option>`).join('') + '</select>';
+function renderInfo() {
+  const el = $('#lf-info'); if (!el) return;
+  const i = st.info;
+  let body;
+  if (!i) {
+    body = leafHead('기본정보', '불러오는 중이에요', 'info', isTeacher()) +
+      (isTeacher() && !st.asId ? '<div class="empty">아직 등록된 학생이 없어요.<br>아래 교사 모드의 “학생 등록”에서 명단을 넣어 주세요.</div>' : '<div class="empty">잠시만 기다려 주세요…</div>');
+  } else {
+    const c = i.currency;
+    const preview = isTeacher();
+    body = leafHead('기본정보', `${esc(i.name)}님, 안녕하세요<br>오늘의 ${esc(c)}을 확인해 보세요`, 'info', isTeacher());
+    body += `<div class="hero">` +
+      (i.debt ? `<div class="notice">월급을 받으면 자동으로 갚아져요. 그때까지 간식·쿠폰은 살 수 없어요.</div>` : '') +
+      `<small>${i.debt ? '갚아야 할 빚' : '내 ' + esc(c)}</small>` +
+      `<p class="big ${i.debt ? 'debt' : ''}">${fmt(Math.abs(i.balance))}<span>${esc(c)}</span></p>` +
+      `<div class="stats">` +
+      `<button type="button" class="stat" data-act="credit"><small>신용 등급</small><b>${i.credit.grade}등급</b><i>${i.credit.total}점 · 자세히</i></button>` +
+      (preview ? `<div class="stat"><small>수학 등급</small><b>${i.mathGrade ? i.mathGrade + '등급' : '-'}</b><i>${i.math !== null ? i.math + '점' : '입력 안 함'}</i></div>`
+        : `<button type="button" class="stat" data-act="mathEdit"><small>수학 등급 ✏️</small><b>${i.mathGrade ? i.mathGrade + '등급' : '-'}</b><i>${i.math !== null ? i.math + '점' : '입력해 보세요'}</i></button>`) +
+      `<div class="stat"><small>실수령 월급</small><b>${fmt(i.job ? i.job.net : 0)}</b><i>세전 ${fmt(i.job ? i.job.salary : 0)} · ${esc(i.job ? i.job.name : '직업 없음')}</i></div>` +
+      `<div class="stat"><small>이번 달 월세</small><b>${i.rentExempt ? '면제' : fmt(i.rent)}</b><i>${i.rentExempt ? '자리를 샀어요' : '세금은 상점에서'}</i></div>` +
+      `<div class="stat"><small>내 자리</small><b>${i.seat ? esc(i.seat.label) : '없음'}</b><i>${i.seat ? (i.seat.paid ? '월세 면제' : '아직 안 냄') : ''}</i></div>` +
+      `</div><div class="row-btn">` +
+      `<button type="button" class="btn" data-act="tab" data-id="shop">상점 가기</button>` +
+      `<button type="button" class="btn sec" data-act="tab" data-id="bank">은행 가기</button>` +
+      (preview ? '' : `<button type="button" class="btn gray" data-act="pinEdit">비밀번호 바꾸기</button>`) +
+      `<button type="button" class="btn gray" data-act="reload" aria-label="새로고침">🔄</button></div></div>`;
+    body += `<div class="list"><h2>최근 내역</h2>` + historyHtml((st.history || []).slice(0, 8)) +
+      ((st.history || []).length > 8 ? `<button type="button" class="btn sec small" data-act="allHistory">전체 보기</button>` : '') + `</div>`;
   }
-  h += '<button class="sub" onclick="logout()">나가기</button>';
-  $('hdrRight').innerHTML = h;
+  if (st.tm.info && isTeacher()) body += infoTeacherPanel();
+  el.innerHTML = body;
 }
-async function pickView(id) { viewId = id; await loadAll(); }
+function historyHtml(list) {
+  if (!list.length) return '<p class="note">아직 거래가 없어요.</p>';
+  return list.map((h) => `<div class="item"><div class="ic ${h.amount >= 0 ? 'in' : 'out'}" aria-hidden="true">${h.amount >= 0 ? '+' : '−'}</div>` +
+    `<div class="t"><b>${esc(h.reason)}</b><span>${esc(h.at)} · ${esc(h.kind)}</span></div>` +
+    `<div class="amt ${h.amount >= 0 ? 'p' : 'm'}">${h.amount >= 0 ? '+' : ''}${fmt(h.amount)}</div></div>`).join('');
+}
 
-function renderWallet() {
-  if (!me) {
-    $('walletBody').innerHTML = '<div class="muted">위쪽에서 학생을 고르면 그 학생의 화면을 그대로 볼 수 있어요.</div>';
-    return;
-  }
-  const jobNames = (me.jobs || []).map((j) => ({ shop: '상점관리', tax: '국세청장' }[j])).filter(Boolean);
-  $('walletBody').innerHTML = `
-    <div>${me.id}번 ${esc(me.name)} ${jobNames.map((j) => `<span class="chip" style="background:#7a8cf0">${j}</span>`).join('')}</div>
-    <div class="balance">${me.balance} 행복</div>
-    ${role === 'student' ? '<button class="sub" onclick="changePin()">비밀번호 바꾸기</button>' : ''}`;
+/* ---------- 기본정보: 창들 ---------- */
+async function showAllHistory() {
+  const list = await run('불러오는 중이에요', () => api('/api/history' + asQ() + (asQ() ? '&' : '?') + 'limit=80'));
+  if (!list) return;
+  openModal(`<h3>거래 내역</h3><div style="max-height:60vh;overflow:auto">${historyHtml(list)}</div><div class="row-btn"><button class="btn gray" data-act="close">닫기</button></div>`, true);
 }
+async function showCredit() {
+  const r = await run('불러오는 중이에요', () => api('/api/credit' + asQ()));
+  if (!r) return;
+  const rows = r.list.length ? r.list.map((x) => `<div class="item"><div class="t"><b>${esc(x.item)}</b><span>${esc(x.date)} · ${esc(x.status)}${x.by && x.by !== '관리자' ? ' · 확인 ' + esc(x.by) : ''}</span></div><div class="amt ${x.points > 0 ? 'p' : 'm'}">${x.points > 0 ? '+' : ''}${x.points}점</div></div>`).join('') : '<p class="note">아직 기록이 없어요.</p>';
+  openModal(`<h3>내 신용점수 — ${r.info.grade}등급</h3>
+    <div class="cbox"><div class="kv"><span>시작 점수</span><b>${r.info.start}점</b></div><div class="kv"><span>제출로 얻은 점수</span><b>${r.info.earned}점</b></div><div class="kv"><span>선생님 조정</span><b>${r.info.adjust > 0 ? '+' : ''}${r.info.adjust}점</b></div><div class="kv" style="border-top:1px solid var(--line);margin-top:6px;padding-top:10px"><span>지금 내 점수</span><b style="color:var(--blue-d);font-size:17px">${r.info.total}점</b></div></div>
+    <div style="max-height:36vh;overflow:auto;margin-top:8px">${rows}</div><div class="row-btn"><button class="btn gray" data-act="close">닫기</button></div>`, true);
+}
+function mathEdit() {
+  const i = st.info;
+  openModal(`<h3>내 수학 점수</h3><p>단원평가 점수를 스스로 입력해요. 가장 최근에 넣은 점수로 바뀝니다.</p>
+    <div class="field"><input id="mathIn" type="number" inputmode="decimal" placeholder="점수" value="${i.math !== null ? i.math : ''}"></div>
+    <div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="mathSave">저장하기</button></div>`);
+}
+function pinEdit() {
+  openModal(`<h3>비밀번호 바꾸기</h3><p>숫자 4자리로 정해 주세요. 0으로 시작해도 괜찮아요. (예: 0101)</p>
+    <div class="form"><div class="field"><input id="pOld" type="password" inputmode="numeric" maxlength="4" placeholder="지금 쓰는 비밀번호"></div>
+    <div class="field"><input id="pNew" type="password" inputmode="numeric" maxlength="4" placeholder="새 비밀번호 4자리"></div>
+    <div class="field"><input id="pNew2" type="password" inputmode="numeric" maxlength="4" placeholder="다시 입력"></div></div>
+    <div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="pinSave">바꾸기</button></div>`);
+  ['pOld', 'pNew', 'pNew2'].forEach((id) => { const e = $('#' + id); e.addEventListener('input', () => (e.value = e.value.replace(/[^0-9]/g, '').slice(0, 4))); });
+}
+
+/* ====================================================================
+   2. 상점
+==================================================================== */
+async function loadShop() {
+  if (isTeacher() && !st.asId) return;
+  try { st.shop = await api('/api/shop' + asQ()); } catch (e) { toast(e.message, true); }
+  renderShop();
+}
+async function loadGroups() {
+  try { st.groups = await api('/api/groups' + asQ()); } catch (e) { toast(e.message, true); }
+  renderShop();
+}
+const shopTeacherAllowed = () => can('상점관리') || can('국고관리') || isTeacher();
+
 function renderShop() {
-  $('shop').innerHTML = items.map((i) => `
-    <div class="item"><b>${esc(i.name)}</b>
-      <div>${i.price} 행복</div><div class="muted">남은 수량 ${i.stock}</div>
-      ${role === 'student'
-        ? `<button ${i.stock <= 0 ? 'disabled' : ''} onclick="buy('${i.id}')">${i.stock <= 0 ? '품절' : '구매'}</button>`
-        : '<div class="muted">(미리보기)</div>'}
-    </div>`).join('') || '<div class="muted">상품이 아직 없어요</div>';
-}
-function renderLogs() {
-  if (!me) { $('logs').innerHTML = '<tr><td class="muted">학생을 고르면 그 학생의 최근 내역이 보여요</td></tr>'; return; }
-  $('logs').innerHTML = (me.logs || []).map((l) => `
-    <tr><td>${new Date(l.at).toLocaleDateString('ko-KR')}</td><td>${esc(l.memo)}</td>
-    <td class="${l.amount > 0 ? 'plus' : 'minus'}">${l.amount > 0 ? '+' : ''}${l.amount}</td><td>${l.balanceAfter}</td></tr>`).join('')
-    || '<tr><td class="muted">내역이 아직 없어요</td></tr>';
-}
-
-// 배너별 교사 모드 버튼과 패널
-function renderTeacherParts() {
-  const p = perms();
-  $('tm-wallet').classList.toggle('hidden', !p.teacher);
-  $('tm-shop').classList.toggle('hidden', !p.shop);
-  $('tm-ledger').classList.toggle('hidden', !p.tax);
-  $('salaryBox').classList.toggle('hidden', !p.teacher);
-  for (const k of Object.keys(openPanels)) {
-    const allowed = k === 'wallet' ? p.teacher : k === 'shop' ? p.shop : p.tax;
-    if (!allowed) openPanels[k] = false;
-    $('p-' + k).classList.toggle('hidden', !openPanels[k]);
-    $('tm-' + k).classList.toggle('on', openPanels[k]);
+  const el = $('#lf-shop'); if (!el) return;
+  let body = leafHead('상점', '필요한 건 골라서<br>똑똑하게 사요', 'shop', shopTeacherAllowed());
+  body += `<div class="segs">` + ['세금', '간식', '쿠폰', '공동구매'].map((c) => `<button type="button" class="seg ${st.shopTab === c ? 'on' : ''}" data-act="shopTab" data-id="${c}">${c}</button>`).join('') + `</div>`;
+  const s = st.shop;
+  if (isTeacher() && !st.asId) body += '<div class="empty">미리 볼 학생이 없어요. 학생을 먼저 등록해 주세요.</div>';
+  else if (!s) body += '<div class="empty">불러오는 중이에요…</div>';
+  else {
+    const c = s.currency;
+    body += `<div class="stats" style="max-width:640px"><div class="stat" style="background:#F9FAFB"><small>${s.balance < 0 ? '갚아야 할 빚' : '내 ' + esc(c)}</small><b style="${s.balance < 0 ? 'color:var(--red)' : ''}">${fmt(Math.abs(s.balance))}</b></div>` +
+      `<div class="stat" style="background:#F9FAFB"><small>이번 세금 주기</small><b style="font-size:16px">${esc(s.cycleRange)}</b></div>` +
+      `<div class="stat" style="background:#F9FAFB"><small>이번 달 월세</small><b>${s.rentExempt ? '면제' : fmt((s.items.find((x) => x.isRent) || {}).price || 0)}</b></div></div>`;
+    body += `<p class="note">세금은 매달 한 번씩 꼭 내야 해요.${s.balance < 0 && s.debtBlocks ? ' 빚이 있으면 간식·쿠폰은 살 수 없어요.' : ''}</p>`;
+    if (st.shopTab === '공동구매') body += groupsHtml();
+    else body += itemsHtml(s);
   }
-  renderRoster('rosW', 'chkW', true);
-  renderRoster('rosL', 'chkL', false);
-  $('itTable').innerHTML = '<tr><th>상품</th><th>가격</th><th>남은 수량</th><th>팔린 수</th><th></th></tr>' +
-    items.map((i) => `<tr><td>${esc(i.name)}</td><td>${i.price}</td><td>${i.stock}</td><td>${i.sold || 0}</td>
-      <td><button class="sub" onclick="restock('${i.id}')">재고 새로 넣기</button>
-      <button class="sub" onclick="delItem('${i.id}')">삭제</button></td></tr>`).join('');
+  if (st.tm.shop && shopTeacherAllowed()) body += shopTeacherPanel();
+  el.innerHTML = body;
 }
-function togglePanel(k) {
-  openPanels[k] = !openPanels[k];
-  renderTeacherParts();
-  if (k === 'ledger' && openPanels.ledger) loadTreasury();
+function itemsHtml(s) {
+  const list = s.items.filter((i) => i.category === st.shopTab);
+  if (!list.length) return `<div class="empty">${st.shopTab === '세금' && s.rentExempt ? '자리를 샀기 때문에 월세가 면제됐어요. 남은 세금만 내면 됩니다.' : '이 칸에는 아직 물건이 없어요.'}</div>`;
+  return `<div class="grid">` + list.map((i) => {
+    let badge, bc = '';
+    if (i.category === '세금') { badge = i.paid ? '✅ 이번 달 납부 완료' : `아직 안 냈어요 · 반 전체 ${i.paidCount}/${i.studentCount}명`; bc = i.paid ? 'green' : 'warn'; }
+    else if (i.remaining === null) { badge = '수량 제한 없음'; bc = 'gray'; }
+    else { badge = `남은 수량 ${i.remaining}개`; bc = i.remaining <= 3 ? 'warn' : 'green'; }
+    const lim = i.limit !== null && i.category !== '세금' ? `하루 1인 ${i.limit}개 (오늘 내가 ${i.myToday}개)` : '';
+    const label = { '품절': '품절', '한도 도달': '오늘은 다 샀어요', '납부 완료': '납부 완료', '행복 부족': cur() + '이 부족해요', '빚 먼저': '빚을 먼저 갚아요' }[i.blocked] || (i.category === '세금' ? '납부하기' : '구매하기');
+    return `<div class="card"><span class="badge ${bc}">${esc(badge)}</span><div class="nm">${esc(i.name)}</div><div class="ds">${esc(i.desc)}</div>` +
+      (lim ? `<div class="st">${lim}</div>` : '') + `<div class="pr">${fmt(i.price)} ${esc(s.currency)}</div>` +
+      `<button type="button" class="btn small ${i.blocked ? '' : 'sec'}" ${i.blocked ? 'disabled' : ''} data-act="buy" data-id="${esc(i.id)}">${label}</button></div>`;
+  }).join('') + `</div>`;
 }
-function renderRoster(tableId, cls, withJobs) {
-  const checked = new Set([...document.querySelectorAll('.' + cls + ':checked')].map((b) => b.value));
-  const head = '<tr><th></th><th>번호</th><th>이름</th><th>행복</th>' + (withJobs ? '<th>직업</th><th></th>' : '') + '</tr>';
-  $(tableId).innerHTML = head + roster.map((s) => {
-    const job = (s.jobs || [])[0] || '';
-    return `<tr><td><input type="checkbox" class="${cls}" value="${s.id}" ${checked.has(s.id) ? 'checked' : ''}></td>
-      <td>${s.id}</td><td>${esc(s.name)}</td><td class="${s.balance < 0 ? 'minus' : ''}">${s.balance}</td>
-      ${withJobs ? `<td><select onchange="setJob('${s.id}', this.value)">
-        <option value="" ${job === '' ? 'selected' : ''}>없음</option>
-        <option value="shop" ${job === 'shop' ? 'selected' : ''}>상점관리</option>
-        <option value="tax" ${job === 'tax' ? 'selected' : ''}>국세청장</option></select></td>
-      <td><button class="sub" onclick="resetPin('${s.id}')">비번 초기화</button></td>` : ''}</tr>`;
+function groupsHtml() {
+  const g = st.groups;
+  if (!g) { loadGroups(); return '<div class="empty">불러오는 중이에요…</div>'; }
+  if (!g.goals.length) return '<div class="empty">지금 진행 중인 공동구매가 없어요.</div>';
+  return `<p class="note">다 같이 돈을 모아 목표를 이루면 선생님이 보상을 줘요. 모인 돈은 나라 국고(세금)로 들어가요.</p>` + g.goals.map((x) => {
+    const pct = Math.min(100, Math.round((x.raised / x.target) * 100));
+    const badge = x.status === '완료' ? '<span class="badge green">완료 · 국고로</span>' : x.status === '취소됨' ? '<span class="badge gray">취소됨</span>' : `<span class="badge">${x.people}명 참여 중</span>`;
+    return `<div class="card" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><div class="nm">${esc(x.title)}</div>${badge}</div>` +
+      (x.desc ? `<div class="ds" style="min-height:0">${esc(x.desc)}</div>` : '') +
+      `<div class="bar"><i style="width:${pct}%"></i></div><div style="display:flex;justify-content:space-between;font-size:13px;color:var(--sub)"><span>${fmt(x.raised)} / ${fmt(x.target)} ${esc(g.currency)}</span><span>${pct}%</span></div>` +
+      (x.status === '진행중' ? `<div class="st">최소 ${fmt(x.min)}부터 참여할 수 있어요</div><button type="button" class="btn small sec" data-act="gJoin" data-id="${esc(x.id)}">참여하기</button>` : '') +
+      (x.mine.length ? `<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:6px"><div class="st">내가 낸 돈 (합계 ${fmt(x.mineSum)})</div>` +
+        x.mine.map((m) => `<div class="mrow" style="border:0;padding:4px 0"><div class="t"><b>${fmt(m.amount)}</b><i>${esc(m.at)}</i></div>${x.status === '진행중' ? `<button type="button" class="btn tiny gray" data-act="gCancel" data-id="${esc(m.id)}">취소</button>` : ''}</div>`).join('') + '</div>' : '') + `</div>`;
   }).join('');
 }
-function toggleAll(cls) {
-  const boxes = [...document.querySelectorAll('.' + cls)];
-  const all = boxes.every((b) => b.checked);
-  boxes.forEach((b) => (b.checked = !all));
+function buyConfirm(id) {
+  const it = st.shop.items.find((x) => x.id === id); if (!it) return;
+  if (isTeacher()) return toast('미리보기 중에는 살 수 없어요');
+  const after = st.shop.balance - it.price;
+  st.forms.tx = uid('B');
+  openModal(`<h3>${esc(it.name)}</h3><p>${fmt(it.price)} ${esc(st.shop.currency)}이 빠져나가요.<br>${after < 0 ? `<b style="color:var(--red)">빚 ${fmt(Math.abs(after))} 상태가 됩니다.</b>` : `남는 ${esc(st.shop.currency)}은 ${fmt(after)}이에요.`}</p>
+    <div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="buyGo" data-id="${esc(id)}">${it.category === '세금' ? '네, 낼게요' : '네, 살게요'}</button></div>`);
 }
-const checkedIds = (cls) => [...document.querySelectorAll('.' + cls + ':checked')].map((b) => b.value);
-
-// ---------- 학생 동작 ----------
-async function buy(id) {
-  const item = items.find((i) => i.id === id);
-  if (!item) return;
-  if (!confirm(`${item.name} (${item.price} 행복)을 살까요?`)) return;
-  const prev = { balance: me.balance, stock: item.stock };
-  me.balance -= item.price; item.stock -= 1; renderWallet(); renderShop(); // 먼저 화면에 반영
-  try {
-    const r = await api('/api/buy', 'POST', { itemId: id });
-    me.balance = r.balance; item.stock = r.stock; renderWallet(); renderShop();
-    toast('구매 완료!');
-    loadAll();
-  } catch (e) {
-    me.balance = prev.balance; item.stock = prev.stock; renderWallet(); renderShop();
-    toast(e.message);
-  }
-}
-async function changePin() {
-  const oldPin = prompt('현재 비밀번호'); if (oldPin === null) return;
-  const newPin = prompt('새 비밀번호 (4자리 이상)'); if (newPin === null) return;
-  try { await api('/api/pin', 'POST', { oldPin, newPin }); toast('바뀌었어요'); } catch (e) { toast(e.message); }
+function groupJoin(id) {
+  if (isTeacher()) return toast('미리보기 중에는 참여할 수 없어요');
+  const g = st.groups.goals.find((x) => x.id === id); if (!g) return;
+  st.forms.tx = uid('GJ');
+  openModal(`<h3>${esc(g.title)}</h3><p>최소 ${fmt(g.min)} ${esc(st.groups.currency)}부터 넣을 수 있어요. 지금 내 ${esc(st.groups.currency)} ${fmt(st.groups.balance)}</p>
+    <div class="field"><input id="gAmt" type="number" inputmode="numeric" placeholder="넣을 금액"></div>
+    <div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="gJoinGo" data-id="${esc(id)}">넣기</button></div>`);
 }
 
-// ---------- 교사 모드 동작 ----------
-async function adjust() {
-  try {
-    await api('/api/teacher/adjust', 'POST', { ids: checkedIds('chkW'), amount: $('adjAmount').value, memo: $('adjMemo').value });
-    toast('적용했어요'); loadAll();
-  } catch (e) { toast(e.message); }
-}
-async function setJob(id, job) {
-  try { await api('/api/teacher/jobs', 'POST', { id, jobs: job ? [job] : [] }); toast('직업을 바꿨어요'); loadAll(); } catch (e) { toast(e.message); }
-}
-async function resetPin(id) {
-  if (!confirm(id + '번 비밀번호를 0000으로 되돌릴까요?')) return;
-  try { await api('/api/teacher/reset-pin', 'POST', { id }); toast('초기화했어요'); } catch (e) { toast(e.message); }
-}
-async function seed() {
-  try { const r = await api('/api/teacher/seed', 'POST', { names: $('seedNames').value.split('\n') }); toast(r.created + '명 등록'); $('seedNames').value = ''; loadAll(); } catch (e) { toast(e.message); }
-}
-async function addItem() {
-  try {
-    await api('/api/shop/item', 'POST', { name: $('itName').value, price: $('itPrice').value, stock: $('itStock').value });
-    $('itName').value = $('itPrice').value = $('itStock').value = '';
-    loadAll();
-  } catch (e) { toast(e.message); }
-}
-async function restock(id) {
-  const item = items.find((i) => i.id === id);
-  const n = prompt('새로 넣을 재고 수량 (팔린 수는 0으로 초기화돼요)'); if (n === null) return;
-  try { await api('/api/shop/item', 'POST', { id, name: item.name, price: item.price, stock: n }); loadAll(); } catch (e) { toast(e.message); }
-}
-async function delItem(id) {
-  if (!confirm('삭제할까요?')) return;
-  try { await api('/api/shop/item/' + id, 'DELETE'); loadAll(); } catch (e) { toast(e.message); }
+/* ====================================================================
+   준비 중인 화면
+==================================================================== */
+function renderPlaceholders() {
+  const info = {
+    bank: ['은행', '모아 둔 행복을<br>안전하게 맡겨요', '예금 · 투자 · 이자율표가 다음 단계에서 이 자리에 들어와요.'],
+    jobs: ['직업소', '어떤 일이 있는지<br>살펴보세요', '직업 목록과 지원 조건(신용·수학 등급), 정원 현황이 다음 단계에서 이 자리에 들어와요.'],
+    work: ['직업 활동', '맡은 일을<br>해 볼 시간이에요', '이번 서버 버전에는 넣지 않았어요. (오늘의 업무, 벌금, 제출 확인 등은 기존 앱 그대로 쓰고 있어요)'],
+    board: ['우리반 보드', '우리 반 이야기를<br>함께 남겨요', '게시글·사진·댓글·추천이 다음 단계에서 이 자리에 들어와요.'],
+  };
+  Object.keys(info).forEach((k) => {
+    const el = $('#lf-' + k); if (!el) return;
+    const [e, t, d] = info[k];
+    el.innerHTML = leafHead(e, t, k, false) + `<div class="empty">${d}</div>`;
+  });
 }
 
-// ---------- 정산 ----------
-async function settle(kind) {
-  const ids = checkedIds('chkL');
-  if (!ids.length) return toast('대상 학생을 선택해 주세요');
-  const body = kind === 'salary'
-    ? { ids, amount: $('salAmount').value, memo: $('salMemo').value }
-    : { ids, amount: $('chAmount').value, memo: $('chName').value };
-  const label = kind === 'salary' ? `월급 ${body.amount}` : `${body.memo || '세금'} ${body.amount}`;
-  if (!confirm(`${ids.length}명에게 ${label}을(를) 적용할까요?`)) return;
+/* ====================================================================
+   교사 모드 — 기본정보
+==================================================================== */
+const SUBS_INFO = [['students', '학생 관리'], ['payroll', '월급 지급'], ['adjust', '행복 · 신용 조정'], ['register', '학생 등록'], ['treasury', '국고'], ['settings', '설정']];
+function subSegs(key, list) {
+  return `<div class="segs">` + list.map(([id, label]) => `<button type="button" class="seg ${st.sub[key] === id ? 'on' : ''}" data-act="sub" data-key="${key}" data-id="${id}">${label}</button>`).join('') + `</div>`;
+}
+function infoTeacherPanel() {
+  const sub = st.sub.info;
+  let inner = '';
+  const a = st.adm.students;
+  if (!a) { inner = '<p class="note">불러오는 중…</p>'; }
+  else if (sub === 'students') inner = studentsTable(a);
+  else if (sub === 'payroll') inner = payrollPanel(a);
+  else if (sub === 'adjust') inner = adjustPanel(a);
+  else if (sub === 'register') inner = registerPanel(a);
+  else if (sub === 'treasury') inner = treasuryPanel(true);
+  else if (sub === 'settings') inner = settingsPanel();
+  return `<section class="tpanel" aria-label="교사 모드"><span class="lbl">교사 모드</span>${subSegs('info', SUBS_INFO)}${inner}</section>`;
+}
+async function loadAdmStudents(rerender) {
   try {
-    const r = await api('/api/settle/' + kind, 'POST', body);
-    $('treasury').textContent = r.treasury;
-    $('settleResult').innerHTML = '<tr><th>번호</th><th>이름</th><th>전</th><th>변화</th><th>후</th></tr>' +
-      r.results.map((x) => `<tr><td>${x.id}</td><td>${esc(x.name)}</td><td>${x.before}</td>
-        <td class="${x.delta > 0 ? 'plus' : 'minus'}">${x.delta > 0 ? '+' : ''}${x.delta}</td>
-        <td class="${x.after < 0 ? 'minus' : ''}">${x.after}</td></tr>`).join('');
-    toast('정산했어요');
-    loadAll();
-  } catch (e) { toast(e.message); }
+    st.adm.students = await api('/api/admin/students');
+    fillAsSel();
+  } catch (e) { toast(e.message, true); }
+  if (rerender !== false) renderInfo();
 }
 
-if (token) start();
+function studentsTable(a) {
+  if (!a.students.length) return '<p class="note">등록된 학생이 없어요. “학생 등록”에서 명단을 넣어 주세요.</p>';
+  const jobOpts = (cur) => `<option value="">직업 없음</option>` + a.jobs.map((j) => `<option value="${j.id}" ${cur === j.id ? 'selected' : ''}>${esc(j.name)} (${j.count}/${j.capacity || '∞'})</option>`).join('');
+  return `<p class="note">직업 · 수학 점수는 바꾸면 바로 저장돼요. 자리는 “몇 줄-몇 번”을 적고 돈을 냈다면 체크한 뒤 저장을 눌러 주세요 (체크하면 월세가 면제돼요).</p>
+  <div class="tscroll"><table class="tbl"><thead><tr><th>번호</th><th>이름</th><th>${esc(a.currency)}</th><th>신용</th><th>수학</th><th>직업</th><th>자리</th><th></th></tr></thead><tbody>` +
+    a.students.map((s) => `<tr data-sid="${esc(s.id)}"><td>${esc(s.id)}</td><td>${esc(s.name)}</td><td class="num ${s.debt ? 'neg' : ''}">${fmt(s.balance)}</td>` +
+      `<td>${s.creditGrade}등급 (${s.creditTotal})</td>` +
+      `<td><input class="mini" data-f="math" type="number" value="${s.math !== null ? s.math : ''}" placeholder="-"> <small>${s.mathGrade ? s.mathGrade + '등급' : ''}</small></td>` +
+      `<td><select class="sel-s" data-f="job">${jobOpts(s.jobId)}</select></td>` +
+      `<td><input class="mini seat" data-f="seat" value="${esc(s.seat)}" placeholder="2-3"> <label><input type="checkbox" data-f="paid" ${s.seatPaid ? 'checked' : ''}> 냄</label> <button class="btn tiny gray" data-act="seatSave" data-id="${esc(s.id)}">저장</button></td>` +
+      `<td><button class="btn tiny gray" data-act="resetPin" data-id="${esc(s.id)}">비번 초기화</button></td></tr>`).join('') + `</tbody></table></div>`;
+}
+function payrollPanel(a) {
+  const withJob = a.students.filter((s) => s.jobId);
+  const jobs = Object.fromEntries(a.jobs.map((j) => [j.id, j]));
+  let gross = 0, tax = 0, gov = 0;
+  withJob.forEach((s) => { const j = jobs[s.jobId]; if (!j) return; gross += j.salary; tax += Math.round((j.salary * a.taxRate) / 100); if (j.source === '국고') gov += j.salary; });
+  if (!st.forms.payBatch) st.forms.payBatch = uid('PAY');
+  return `<h2>월급 지급</h2><p class="note">직업이 있는 학생 모두에게 한 번에 지급해요. 소득세 ${a.taxRate}%는 월급에서 빠져 국고로 들어가고, 국고 재원 직업의 월급은 국고에서 나가요. 빚이 있으면 월급에서 먼저 갚아져요. 버튼을 두 번 눌러도 한 번만 지급돼요.</p>
+  <div class="cols"><div class="cbox"><div class="kv"><span>받는 학생</span><b>${withJob.length}명</b></div><div class="kv"><span>월급 합계 (세전)</span><b>${fmt(gross)}</b></div><div class="kv"><span>소득세 (국고 수입)</span><b>${fmt(tax)}</b></div><div class="kv"><span>국고 지출 (공무원 월급)</span><b>${fmt(gov)}</b></div></div></div>
+  <button type="button" class="btn" ${withJob.length ? '' : 'disabled'} data-act="payConfirm">월급 지급하기</button>`;
+}
+function selectedChips(a) {
+  return `<div class="chips">` + a.students.map((s) => `<button type="button" class="chipbtn ${st.sel.has(s.id) ? 'sel' : ''}" data-act="togSel" data-id="${esc(s.id)}" aria-pressed="${st.sel.has(s.id)}">${esc(s.id)} ${esc(s.name)}</button>`).join('') +
+    `<button type="button" class="chipbtn" data-act="selAll">전체 선택</button><button type="button" class="chipbtn" data-act="selNone">선택 해제</button></div>`;
+}
+function adjustPanel(a) {
+  if (!a.students.length) return '<p class="note">등록된 학생이 없어요.</p>';
+  if (!st.forms.adjBatch) st.forms.adjBatch = uid('ADJ');
+  return `<h2>${esc(a.currency)} 지급 · 삭감</h2>${selectedChips(a)}
+  <div class="form"><div class="field"><label for="adjAmt">금액 (삭감은 -)</label><input id="adjAmt" type="number" value="50"></div>
+  <div class="field" style="flex-grow:2"><label for="adjMemo">사유</label><input id="adjMemo" type="text" placeholder="발표 참여"></div></div>
+  <div class="form"><label style="font-size:14px;display:flex;gap:8px;align-items:center"><input type="checkbox" id="adjTreasury"> 국고에서 주고받기 (지급은 국고에서 나가요)</label></div>
+  <button type="button" class="btn" data-act="happyGo">선택한 학생에게 적용</button>
+  <h2 style="margin-top:28px">신용점수 조정</h2>
+  <div class="form"><div class="field"><label for="crPts">점수 (감점은 -)</label><input id="crPts" type="number" value="1"></div>
+  <div class="field" style="flex-grow:2"><label for="crMemo">사유</label><input id="crMemo" type="text" placeholder="선생님 조정"></div></div>
+  <button type="button" class="btn sec" data-act="creditGo">선택한 학생에게 적용</button>`;
+}
+function registerPanel(a) {
+  return `<h2>학생 등록</h2><p class="note">한 줄에 한 명씩, 번호 순서대로 이름을 적어 주세요. 이미 있는 번호는 건드리지 않아요. 처음 비밀번호는 모두 1111이에요.</p>
+  <div class="form"><div class="field" style="flex-basis:100%"><textarea id="names" placeholder="김가온&#10;이나래&#10;박다온">${esc(a.students.map((s) => s.name).join('\n'))}</textarea></div></div>
+  <button type="button" class="btn" data-act="seedGo">등록하기</button>
+  ${a.students.length ? `<h2 style="margin-top:28px">이름 고치기</h2><div class="form"><div class="field"><label for="rnId">학생</label><select id="rnId">${a.students.map((s) => `<option value="${esc(s.id)}">${esc(s.id)} ${esc(s.name)}</option>`).join('')}</select></div><div class="field"><label for="rnName">새 이름</label><input id="rnName" type="text"></div><button type="button" class="btn sec small" data-act="renameGo">고치기</button></div>` : ''}`;
+}
+const SET_LABELS = [
+  ['화폐단위', '화폐 이름', ''], ['나라이름', '나라 이름', ''], ['월세', '월세', '자리를 사지 않은 학생이 내는 금액'], ['소득세율', '소득세율 (%)', '월급에서 원천징수'],
+  ['세금초기화일', '세금 주기 시작일 (2~28)', '이 날 새 세금 주기가 시작돼요'], ['빚허용', '세금 빚 허용 (Y/N)', 'Y면 잔액이 모자라도 세금은 빚으로 납부'], ['빚이면구매금지', '빚이면 구매 금지 (Y/N)', 'Y면 빚이 있으면 간식·쿠폰 불가'],
+  ['신용시작점수', '신용 시작 점수', ''], ['신용등급컷', '신용 등급 기준', '1/2/3/4등급 최소 점수'], ['수학등급컷', '수학 등급 기준', '1/2/3/4등급 최소 점수'], ['수학최대점수', '수학 최대 점수', ''], ['공동구매최소금액', '공동구매 최소 금액', ''],
+];
+function settingsPanel() {
+  const s = st.adm.settings;
+  if (!s) { loadSettings(); return '<p class="note">불러오는 중…</p>'; }
+  return `<h2>설정</h2><div class="form">` + SET_LABELS.map(([k, l, h]) => `<div class="field"><label for="set_${k}">${l}</label><input id="set_${k}" data-key="${k}" value="${esc(s[k])}">${h ? `<small class="note" style="margin:0">${h}</small>` : ''}</div>`).join('') + `</div><button type="button" class="btn" data-act="setGo">설정 저장</button>`;
+}
+async function loadSettings() { try { st.adm.settings = await api('/api/admin/settings'); renderInfo(); } catch (e) { toast(e.message, true); } }
+
+/* ---------- 국고 ---------- */
+async function loadTreasury() { try { st.adm.treasury = await api('/api/admin/treasury'); } catch (e) { toast(e.message, true); } renderInfo(); renderShop(); }
+function treasuryPanel(canAdjust) {
+  const t = st.adm.treasury;
+  if (!t) { loadTreasury(); return '<p class="note">불러오는 중…</p>'; }
+  const max = Math.max(1, ...t.monthly.flatMap((m) => [m.in, m.out]));
+  const list = (arr) => arr.length ? arr.map((x) => `<div class="kv"><span>${esc(x.name)}</span><b>${fmt(x.value)}</b></div>`).join('') : '<p class="note">아직 없어요</p>';
+  return `<h2>나라 국고</h2><div class="cols"><div class="cbox"><div class="kv"><span>국고 잔액</span><b style="font-size:20px;color:${t.balance < 0 ? 'var(--red)' : 'var(--blue-d)'}">${fmt(t.balance)} ${esc(t.currency)}</b></div><div class="kv"><span>총 수입</span><b>${fmt(t.totalIn)}</b></div><div class="kv"><span>총 지출</span><b>${fmt(t.totalOut)}</b></div></div>
+  <div class="cbox"><h3>수입</h3>${list(t.income)}</div><div class="cbox"><h3>지출</h3>${list(t.outgo)}</div></div>
+  ${t.monthly.length ? `<div class="cbox" style="margin-bottom:18px"><h3>월별 (수입 · 지출)</h3><div class="mbar">` + t.monthly.map((m) => `<div title="${m.month}"><span style="display:flex;gap:3px;align-items:flex-end;height:70px;width:100%;justify-content:center"><i style="height:${(m.in / max) * 70}px;width:40%"></i><i style="height:${(m.out / max) * 70}px;width:40%;background:#B0B8C1"></i></span>${m.month.slice(5)}월</div>`).join('') + `</div><p class="note" style="margin:0">파랑 = 수입, 회색 = 지출</p></div>` : ''}
+  <h3>최근 기록</h3>` + (t.recent.length ? t.recent.map((r) => `<div class="item" style="padding:8px 0"><div class="t"><b>${esc(r.reason || r.kind)}</b><span>${esc(r.at)} · ${esc(r.kind)}${r.student ? ' · ' + esc(r.student) : ''}</span></div><div class="amt ${r.amount >= 0 ? 'p' : 'm'}">${r.amount >= 0 ? '+' : ''}${fmt(r.amount)}</div></div>`).join('') : '<p class="note">아직 기록이 없어요.</p>') +
+  (canAdjust && isTeacher() ? `<h3 style="margin-top:20px">국고 직접 조정</h3><div class="form"><div class="field"><label for="trKind">구분</label><select id="trKind">${[...t.inKinds, ...t.outKinds].map((k) => `<option>${esc(k)}</option>`).join('')}</select></div><div class="field"><label for="trAmt">금액 (지출은 -)</label><input id="trAmt" type="number"></div><div class="field"><label for="trMemo">사유</label><input id="trMemo" type="text"></div><button type="button" class="btn sec small" data-act="trGo">반영</button></div>` : '');
+}
+
+/* ====================================================================
+   교사 모드 — 상점
+==================================================================== */
+function shopTabsAllowed() {
+  const l = [];
+  if (can('상점관리')) l.push(['items', '상품 관리']);
+  if (isTeacher()) l.push(['groups', '공동구매 관리']);
+  if (can('국고관리')) l.push(['treasury', '국고']);
+  return l;
+}
+function shopTeacherPanel() {
+  const tabs = shopTabsAllowed();
+  if (!tabs.length) return '';
+  if (!tabs.some(([id]) => id === st.sub.shop)) st.sub.shop = tabs[0][0];
+  const sub = st.sub.shop;
+  let inner = '';
+  if (sub === 'items') inner = itemsAdmin();
+  else if (sub === 'groups') inner = groupsAdmin();
+  else if (sub === 'treasury') inner = treasuryPanel(false);
+  return `<section class="tpanel" aria-label="교사 모드"><span class="lbl">${isTeacher() ? '교사 모드' : '직업 권한'}</span>${subSegs('shop', tabs)}${inner}</section>`;
+}
+async function loadAdmShop() { try { st.adm.shop = await api('/api/admin/shop'); } catch (e) { toast(e.message, true); } renderShop(); }
+function itemsAdmin() {
+  const a = st.adm.shop;
+  if (!a) { loadAdmShop(); return '<p class="note">불러오는 중…</p>'; }
+  const row = (i) => `<div class="mrow"><div class="t"><b>${esc(i.name)}</b> ${i.active ? '' : '<span class="badge gray">숨김</span>'}` +
+    `<i>${fmt(i.price)} ${esc(a.currency)}${i.isRent ? ' (설정의 월세 값)' : ''} · ` +
+    (i.category === '세금' ? `이번 주기 납부 ${i.tax.paid}/${i.tax.target}명${i.tax.exempt ? ` (자리 면제 ${i.tax.exempt}명)` : ''}`
+      : `재고 ${i.stock === null ? '무제한' : `${i.remaining}/${i.stock}`} · 판매 ${i.sold}개 · 하루 1인 ${i.limit === null ? '제한 없음' : i.limit + '개'}`) + `</i></div>` +
+    `<div class="acts"><button class="btn tiny gray" data-act="itemEdit" data-id="${esc(i.id)}">수정</button>` +
+    (i.category !== '세금' ? `<button class="btn tiny gray" data-act="itemRestock" data-id="${esc(i.id)}">재고 새로 채우기</button>` : '') +
+    `<button class="btn tiny gray" data-act="itemActive" data-id="${esc(i.id)}" data-on="${i.active ? 0 : 1}">${i.active ? '숨기기' : '보이기'}</button>` +
+    `<button class="btn tiny red" data-act="itemDel" data-id="${esc(i.id)}">삭제</button></div></div>`;
+  return `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h2 style="margin:0">상품 관리</h2><button class="btn small" data-act="itemNew">+ 상품 추가</button></div>
+  <p class="note" style="margin-top:8px">이번 세금 주기: ${esc(a.cycleRange)}. “재고 새로 채우기”는 지난 판매 기록은 그대로 두고 남은 수량만 새로 맞춰요. 세금 항목의 “월세”는 자리 시스템과 이어져 있어 이름을 바꾸거나 지우지 않는 게 좋아요.</p>` +
+    a.categories.map((c) => `<h3 style="margin-top:18px">${c}</h3>` + (a.items.filter((i) => i.category === c).map(row).join('') || '<p class="note">없어요</p>')).join('');
+}
+function itemForm(it) {
+  const a = st.adm.shop;
+  return `<div class="form"><div class="field"><label for="ifCat">카테고리</label><select id="ifCat">${a.categories.map((c) => `<option ${it && it.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+  <div class="field"><label for="ifName">이름</label><input id="ifName" value="${esc(it ? it.name : '')}"></div>
+  <div class="field"><label for="ifPrice">가격</label><input id="ifPrice" type="number" value="${it ? it.price : ''}"></div>
+  <div class="field" style="flex-basis:100%"><label for="ifDesc">설명</label><input id="ifDesc" value="${esc(it ? it.desc : '')}"></div>
+  <div class="field"><label for="ifStock">재고 (비우면 무제한)</label><input id="ifStock" type="number" value="${it && it.stock !== null ? it.stock : ''}"></div>
+  <div class="field"><label for="ifLimit">하루 1인 한도 (비우면 무제한)</label><input id="ifLimit" type="number" value="${it && it.limit !== null ? it.limit : ''}"></div></div>`;
+}
+function itemBody() {
+  return { category: val('ifCat'), name: val('ifName'), price: val('ifPrice'), desc: val('ifDesc'), stock: val('ifStock'), limit: val('ifLimit') };
+}
+async function loadAdmGroups() { try { st.adm.groups = await api('/api/admin/groups'); } catch (e) { toast(e.message, true); } renderShop(); }
+function groupsAdmin() {
+  const a = st.adm.groups;
+  if (!a) { loadAdmGroups(); return '<p class="note">불러오는 중…</p>'; }
+  const list = a.goals.map((g) => `<div class="cbox" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${esc(g.title)}</b><span class="badge ${g.status === '완료' ? 'green' : g.status === '취소됨' ? 'gray' : ''}">${g.status}</span></div>
+    ${g.desc ? `<p class="note" style="margin:4px 0">${esc(g.desc)}</p>` : ''}<div class="bar"><i style="width:${Math.min(100, Math.round((g.raised / g.target) * 100))}%"></i></div>
+    <div class="kv"><span>${fmt(g.raised)} / ${fmt(g.target)} (최소 ${fmt(g.min)})</span><span>${g.people.length}명</span></div>
+    <p class="note" style="margin:0 0 8px">${g.people.length ? g.people.map((p) => `${esc(p.name)} ${fmt(p.amount)}`).join(' · ') : '아직 참여한 학생이 없어요'}</p>
+    ${g.status === '진행중' ? `<div class="acts" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn tiny gray" data-act="gEdit" data-id="${esc(g.id)}">수정</button><button class="btn tiny" data-act="gDone" data-id="${esc(g.id)}">모금 완료</button><button class="btn tiny red" data-act="gStop" data-id="${esc(g.id)}">목표 취소</button></div>` : ''}</div>`).join('');
+  return `<h2>공동구매 관리</h2><div class="cbox" style="margin-bottom:18px"><h3>새 목표 만들기</h3><div class="form"><div class="field"><label for="gnTitle">제목</label><input id="gnTitle"></div><div class="field"><label for="gnTarget">목표 금액</label><input id="gnTarget" type="number"></div><div class="field"><label for="gnMin">한 번에 최소 (기본 ${fmt(a.defaultMin)})</label><input id="gnMin" type="number"></div><div class="field" style="flex-basis:100%"><label for="gnDesc">설명</label><input id="gnDesc"></div><button class="btn small" data-act="gNew">만들기</button></div></div>` +
+    (list || '<p class="note">아직 목표가 없어요.</p>');
+}
+
+/* ====================================================================
+   클릭 처리 (한 곳에서)
+==================================================================== */
+async function afterMoney() { // 돈이 움직인 뒤 화면 새로 불러오기
+  st.shop = null; st.groups = null; st.adm.groups = null; st.adm.shop = null; st.adm.treasury = null;
+  await Promise.all([loadInfo(), st.tab === 'shop' ? loadShop() : null, st.tab === 'shop' && st.shopTab === '공동구매' ? loadGroups() : null]);
+  if (isTeacher()) loadAdmStudents(false).then(() => { fillAsSel(); });
+}
+function fieldsOf(tr) { const o = {}; tr.querySelectorAll('[data-f]').forEach((e) => (o[e.dataset.f] = e.type === 'checkbox' ? e.checked : e.value)); return o; }
+
+const ACT = {
+  tab: (d) => goTab(d.id),
+  close: () => closeModal(),
+  reload: () => { st.shop = null; st.groups = null; loadInfo(); if (st.tab === 'shop') loadShop(); toast('새로 불러왔어요'); },
+  tm: (d) => {
+    st.tm[d.id] = !st.tm[d.id];
+    if (d.id === 'info') renderInfo(); else renderShop();
+  },
+  sub: (d) => {
+    st.sub[d.key] = d.id;
+    if (d.key === 'info') renderInfo(); else renderShop();
+  },
+  credit: () => showCredit(),
+  allHistory: () => showAllHistory(),
+  mathEdit: () => mathEdit(),
+  mathSave: async () => {
+    const r = await run('저장하는 중이에요', () => api('/api/math', { method: 'POST', body: { score: val('mathIn') } }));
+    if (r) { closeModal(); toast('점수를 저장했어요'); loadInfo(); }
+  },
+  pinEdit: () => pinEdit(),
+  pinSave: async () => {
+    const n = val('pNew');
+    if (!/^[0-9]{4}$/.test(n)) return toast('새 비밀번호는 숫자 4자리여야 해요', true);
+    if (n !== val('pNew2')) return toast('새 비밀번호 두 개가 서로 달라요', true);
+    const r = await run('바꾸는 중이에요', () => api('/api/pin', { method: 'POST', body: { oldPin: val('pOld'), newPin: n } }));
+    if (r) { closeModal(); toast('비밀번호를 바꿨어요'); }
+  },
+  /* 상점 */
+  shopTab: (d) => { st.shopTab = d.id; renderShop(); if (d.id === '공동구매' && !st.groups) loadGroups(); },
+  buy: (d) => buyConfirm(d.id),
+  buyGo: async (d) => {
+    const tx = st.forms.tx;
+    const r = await run('사는 중이에요', () => api('/api/buy', { method: 'POST', body: { itemId: d.id, txId: tx } }));
+    closeModal();
+    if (r) { toast(r.message); await afterMoney(); }
+  },
+  gJoin: (d) => groupJoin(d.id),
+  gJoinGo: async (d) => {
+    const tx = st.forms.tx;
+    const r = await run('넣는 중이에요', () => api('/api/groups/join', { method: 'POST', body: { goalId: d.id, amount: val('gAmt'), txId: tx } }));
+    if (r) { closeModal(); toast(r.message); await afterMoney(); }
+  },
+  gCancel: async (d) => {
+    const r = await run('취소하는 중이에요', () => api('/api/groups/cancel', { method: 'POST', body: { joinId: d.id } }));
+    if (r) { toast(r.message); await afterMoney(); }
+  },
+  /* 기본정보 교사 모드 */
+  resetPin: async (d) => {
+    const r = await run('처리 중이에요', () => api(`/api/admin/students/${d.id}/resetpin`, { method: 'POST', body: {} }));
+    if (r) toast(r.message);
+  },
+  seatSave: async (d, b) => {
+    const f = fieldsOf(b.closest('tr'));
+    const r = await run('저장하는 중이에요', () => api(`/api/admin/students/${d.id}/seat`, { method: 'POST', body: { seat: f.seat, paid: f.paid } }));
+    if (r) { toast(r.message); loadAdmStudents(false); if (String(st.asId) === String(d.id)) { st.shop = null; loadInfo(); if (st.tab === 'shop') loadShop(); } }
+  },
+  payConfirm: () => {
+    openModal(`<h3>월급을 지급할까요?</h3><p>직업이 있는 모든 학생에게 지급돼요. 같은 요청은 두 번 지급되지 않아요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="payGo">지급하기</button></div>`);
+  },
+  payGo: async () => {
+    const r = await run('지급하는 중이에요', () => api('/api/admin/payroll', { method: 'POST', body: { batchId: st.forms.payBatch } }));
+    closeModal();
+    if (r) { toast(r.message); st.forms.payBatch = null; await afterMoney(); }
+  },
+  togSel: (d, b) => { if (st.sel.has(d.id)) st.sel.delete(d.id); else st.sel.add(d.id); b.classList.toggle('sel'); b.setAttribute('aria-pressed', st.sel.has(d.id)); },
+  selAll: () => { st.adm.students.students.forEach((s) => st.sel.add(s.id)); document.querySelectorAll('[data-act=togSel]').forEach((b) => { b.classList.add('sel'); b.setAttribute('aria-pressed', 'true'); }); },
+  selNone: () => { st.sel.clear(); document.querySelectorAll('[data-act=togSel]').forEach((b) => { b.classList.remove('sel'); b.setAttribute('aria-pressed', 'false'); }); },
+  happyGo: async () => {
+    if (!st.sel.size) return toast('학생을 선택해 주세요', true);
+    const body = { ids: [...st.sel], amount: val('adjAmt'), reason: val('adjMemo'), fromTreasury: $('#adjTreasury').checked, batchId: st.forms.adjBatch };
+    const r = await run('반영하는 중이에요', () => api('/api/admin/happy', { method: 'POST', body }));
+    if (r) { toast(r.message); st.forms.adjBatch = null; await afterMoney(); renderInfo(); }
+  },
+  creditGo: async () => {
+    if (!st.sel.size) return toast('학생을 선택해 주세요', true);
+    const r = await run('반영하는 중이에요', () => api('/api/admin/credit', { method: 'POST', body: { ids: [...st.sel], points: val('crPts'), reason: val('crMemo') } }));
+    if (r) { toast(r.message); await afterMoney(); }
+  },
+  seedGo: async () => {
+    const names = val('names').split('\n').map((x) => x.trim()).filter(Boolean);
+    const r = await run('등록하는 중이에요', () => api('/api/admin/students/seed', { method: 'POST', body: { names } }));
+    if (r) {
+      toast(r.message);
+      await loadAdmStudents(false);
+      if (!st.asId && st.adm.students.students.length) { st.asId = st.adm.students.students[0].id; }
+      fillAsSel(); st.info = null; loadInfo(); renderInfo();
+    }
+  },
+  renameGo: async () => {
+    const r = await run('고치는 중이에요', () => api(`/api/admin/students/${val('rnId')}/rename`, { method: 'POST', body: { name: val('rnName') } }));
+    if (r) { toast(r.message); await loadAdmStudents(); fillAsSel(); }
+  },
+  setGo: async () => {
+    const body = {};
+    document.querySelectorAll('[data-key]').forEach((e) => (body[e.dataset.key] = e.value));
+    const r = await run('저장하는 중이에요', () => api('/api/admin/settings', { method: 'POST', body }));
+    if (r) { toast(r.message); st.adm.settings = null; st.shop = null; loadInfo(); if (st.tab === 'shop') loadShop(); loadSettings(); }
+  },
+  trGo: async () => {
+    const r = await run('반영하는 중이에요', () => api('/api/admin/treasury/adjust', { method: 'POST', body: { kind: val('trKind'), amount: val('trAmt'), reason: val('trMemo'), batchId: uid('TA') } }));
+    if (r) { toast(r.message); loadTreasury(); }
+  },
+  /* 상점 교사 모드 */
+  itemNew: () => openModal(`<h3>상품 추가</h3>${itemForm(null)}<div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="itemNewGo">추가</button></div>`, true),
+  itemNewGo: async () => {
+    const r = await run('저장하는 중이에요', () => api('/api/admin/shop/item', { method: 'POST', body: itemBody() }));
+    if (r) { closeModal(); toast(r.message); st.shop = null; loadAdmShop(); loadShop(); }
+  },
+  itemEdit: (d) => {
+    const it = st.adm.shop.items.find((x) => x.id === d.id); if (!it) return;
+    openModal(`<h3>상품 고치기</h3>${itemForm(it)}<div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="itemEditGo" data-id="${esc(d.id)}">저장</button></div>`, true);
+  },
+  itemEditGo: async (d) => {
+    const r = await run('저장하는 중이에요', () => api('/api/admin/shop/item/' + d.id, { method: 'PUT', body: itemBody() }));
+    if (r) { closeModal(); toast(r.message); st.shop = null; loadAdmShop(); loadShop(); }
+  },
+  itemActive: async (d) => {
+    const r = await run('처리 중이에요', () => api(`/api/admin/shop/item/${d.id}/active`, { method: 'POST', body: { active: d.on === '1' } }));
+    if (r) { toast(r.message); st.shop = null; loadAdmShop(); loadShop(); }
+  },
+  itemDel: (d) => {
+    const it = st.adm.shop.items.find((x) => x.id === d.id); if (!it) return;
+    openModal(`<h3>“${esc(it.name)}” 상품을 지울까요?</h3><p>지난 거래 내역은 그대로 남아요. 잠깐 숨기고 싶다면 “숨기기”를 쓰세요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="itemDelGo" data-id="${esc(d.id)}">지우기</button></div>`);
+  },
+  itemDelGo: async (d) => {
+    const r = await run('지우는 중이에요', () => api('/api/admin/shop/item/' + d.id, { method: 'DELETE' }));
+    if (r) { closeModal(); toast(r.message); st.shop = null; loadAdmShop(); loadShop(); }
+  },
+  itemRestock: (d) => {
+    const it = st.adm.shop.items.find((x) => x.id === d.id); if (!it) return;
+    openModal(`<h3>${esc(it.name)} 재고 새로 채우기</h3><p>지금까지 ${it.totalSold}개 팔렸어요. 남은 수량을 새로 정해요. (판매 기록은 지워지지 않아요)</p><div class="field"><input id="rsStock" type="number" placeholder="새 재고 수" value="${it.stock !== null ? it.stock : ''}"></div><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="itemRestockGo" data-id="${esc(d.id)}">채우기</button></div>`);
+  },
+  itemRestockGo: async (d) => {
+    const r = await run('저장하는 중이에요', () => api(`/api/admin/shop/item/${d.id}/restock`, { method: 'POST', body: { stock: val('rsStock') } }));
+    if (r) { closeModal(); toast(r.message); st.shop = null; loadAdmShop(); loadShop(); }
+  },
+  gNew: async () => {
+    const r = await run('만드는 중이에요', () => api('/api/admin/groups', { method: 'POST', body: { title: val('gnTitle'), target: val('gnTarget'), min: val('gnMin'), desc: val('gnDesc') } }));
+    if (r) { toast(r.message); st.groups = null; loadAdmGroups(); }
+  },
+  gEdit: (d) => {
+    const g = st.adm.groups.goals.find((x) => x.id === d.id); if (!g) return;
+    openModal(`<h3>목표 고치기</h3><div class="form"><div class="field" style="flex-basis:100%"><label for="geTitle">제목</label><input id="geTitle" value="${esc(g.title)}"></div><div class="field" style="flex-basis:100%"><label for="geDesc">설명</label><input id="geDesc" value="${esc(g.desc)}"></div><div class="field"><label for="geMin">한 번에 최소</label><input id="geMin" type="number" value="${g.min}"></div></div><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="gEditGo" data-id="${esc(d.id)}">저장</button></div>`);
+  },
+  gEditGo: async (d) => {
+    const r = await run('저장하는 중이에요', () => api('/api/admin/groups/' + d.id, { method: 'PUT', body: { title: val('geTitle'), desc: val('geDesc'), min: val('geMin') } }));
+    if (r) { closeModal(); toast(r.message); st.groups = null; loadAdmGroups(); }
+  },
+  gDone: (d) => openModal(`<h3>모금을 완료할까요?</h3><p>목표 금액을 다 채웠을 때만 할 수 있어요. 모인 돈은 전액 국고로 들어가요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="gDoneGo" data-id="${esc(d.id)}">완료하기</button></div>`),
+  gDoneGo: async (d) => {
+    const r = await run('처리하는 중이에요', () => api(`/api/admin/groups/${d.id}/complete`, { method: 'POST', body: {} }));
+    closeModal();
+    if (r) { toast(r.message); st.groups = null; st.adm.treasury = null; loadAdmGroups(); }
+  },
+  gStop: (d) => openModal(`<h3>목표를 취소할까요?</h3><p>지금까지 낸 학생 모두에게 돈을 돌려줘요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="gStopGo" data-id="${esc(d.id)}">취소하기</button></div>`),
+  gStopGo: async (d) => {
+    const r = await run('환불하는 중이에요', () => api(`/api/admin/groups/${d.id}/cancel`, { method: 'POST', body: {} }));
+    closeModal();
+    if (r) { toast(r.message); st.groups = null; loadAdmGroups(); loadAdmStudents(false); }
+  },
+};
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]');
+  if (!b || b.disabled) return;
+  const fn = ACT[b.dataset.act];
+  if (fn) fn(b.dataset, b, e);
+});
+// 학생 관리 표: 직업·수학은 바꾸면 바로 저장
+document.addEventListener('change', async (e) => {
+  const f = e.target.dataset && e.target.dataset.f;
+  if (f !== 'job' && f !== 'math') return;
+  const tr = e.target.closest('tr[data-sid]'); if (!tr) return;
+  const id = tr.dataset.sid;
+  const r = f === 'job'
+    ? await run('저장하는 중이에요', () => api(`/api/admin/students/${id}/job`, { method: 'POST', body: { jobId: e.target.value } }))
+    : await run('저장하는 중이에요', () => api(`/api/admin/students/${id}/math`, { method: 'POST', body: { score: e.target.value } }));
+  if (r) toast(r.message); 
+  await loadAdmStudents();
+  if (String(st.asId) === id) { st.info = null; loadInfo(); }
+});
+
+/* ====================================================================
+   시작
+==================================================================== */
+(async function boot() {
+  try { const c = await fetch('/api/country').then((r) => r.json()); if (c.name) { document.title = c.name; $('#lname').textContent = c.name; $('#brandName').textContent = c.name; } } catch (e) {}
+  const t = loadToken();
+  if (t) { st.token = t; try { await enter(); return; } catch (e) { st.token = null; saveToken(); } }
+  $('#login').hidden = false;
+})();
 </script>
 </body>
 </html>
