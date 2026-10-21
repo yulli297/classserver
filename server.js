@@ -1240,7 +1240,7 @@ async function writePost(boardId, authorId, b, S, admin) {
   const { text, link } = cleanPost(b, datas.length > 0);
   const postId = newId('B');
   const photoIds = await savePhotos(postId, datas);
-  await db.collection('boardPosts').doc(postId).set({ boardId: board.id, authorId, at: Timestamp.now(), text, link, photoIds, deleted: false });
+  await db.collection('boardPosts').doc(postId).set({ boardId: board.id, authorId, at: Timestamp.now(), text, link, photoIds, deleted: false, order: -Date.now() });
   return photoIds.length > 1 ? `사진 ${photoIds.length}장과 함께 올렸어요!` : '올렸어요!';
 }
 
@@ -1270,7 +1270,7 @@ app.get('/api/board/:id/posts', auth, wrap(async (req, res) => {
   ]);
   const nm = (id) => (id === TEACHER_AUTHOR ? TEACHER_AUTHOR : names[id] || id);
   const posts = ps.docs.map((d) => ({ id: d.id, ...d.data() })).filter((p) => !p.deleted)
-    .sort((a, b) => b.at.toMillis() - a.at.toMillis()).slice(0, 40);
+    .sort((a, b) => (typeof a.order === 'number' ? a.order : -a.at.toMillis()) - (typeof b.order === 'number' ? b.order : -b.at.toMillis())).slice(0, 40);
   const byPost = {};
   posts.forEach((p) => (byPost[p.id] = { likes: 0, liked: false, comments: [] }));
   ls.docs.forEach((d) => { const x = byPost[d.data().postId]; if (!x) return; x.likes++; if (d.data().studentId === me) x.liked = true; });
@@ -1393,6 +1393,16 @@ app.post('/api/admin/board/:id/post', guard('teacher'), wrap(async (req, res) =>
   const message = await writePost(req.params.id, TEACHER_AUTHOR, req.body, S, true);
   res.json({ ok: true, message });
 }));
+app.post('/api/admin/board/:id/order', guard('teacher'), wrap(async (req, res) => {
+  const ids = Array.isArray(req.body.ids) ? req.body.ids.map(String).slice(0, 100) : [];
+  if (!ids.length) throw new UserError('순서를 받지 못했어요');
+  const snap = await db.collection('boardPosts').where('boardId', '==', req.params.id).get();
+  const ok = new Set(snap.docs.map((d) => d.id));
+  const T = Date.now(), b = db.batch();
+  ids.filter((id) => ok.has(id)).forEach((id, i) => b.update(db.collection('boardPosts').doc(id), { order: -T + i }));
+  await b.commit();
+  res.json({ ok: true, message: '순서를 바꿨어요' });
+}));
 app.post('/api/admin/board/post/:id/delete', guard('teacher'), wrap(async (req, res) => {
   const ref = db.collection('boardPosts').doc(String(req.params.id));
   if (!(await ref.get()).exists) throw new UserError('그 글을 찾을 수 없어요');
@@ -1486,6 +1496,10 @@ app.post('/api/admin/import', guard('teacher'), wrap(async (req, res) => {
     if (num(s.줄) > 0 && num(s.칸) > 0) put('seats', `P${num(s.줄)}-${num(s.칸)}`, { row: num(s.줄), col: num(s.칸), price: num(s.가격), forSale: s.판매중 !== false, studentId: stu, paid: !!s.납부 && !!stu }, false);
   });
   report.자리 = arr(D.자리).length;
+  if (arr(D.자리).length) {
+    const keepSeat = new Set(arr(D.자리).filter((x) => num(x.줄) > 0 && num(x.칸) > 0).map((x) => `P${num(x.줄)}-${num(x.칸)}`));
+    (await db.collection('seats').get()).docs.forEach((d) => { if (!keepSeat.has(d.id)) del('seats', d.id); });
+  }
   let moved = 0, sumBal = 0;
   D.학생.forEach((s) => {
     const id = sid(s.id), bal = Math.round(num((D.잔액 || {})[String(s.id)]));
@@ -1497,6 +1511,7 @@ app.post('/api/admin/import', guard('teacher'), wrap(async (req, res) => {
       moved++; sumBal += bal;
     }
   });
+  if (arr(D.자리).length) { const inFile = new Set(D.학생.map((x) => sid(x.id))); existing.forEach((v, id) => { if (!inFile.has(id) && (v.seat || v.seatPaid)) put('students', id, { seat: '', seatPaid: false }, true); }); }
   report.학생 = D.학생.length; report.잔액이월 = moved; report.잔액합계 = sumBal;
 
   // 국고 (이미 가져온 적 있으면 같은 번호라 덮어쓰기만 돼요)

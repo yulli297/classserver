@@ -160,6 +160,14 @@ button.stat { cursor: pointer; }
 .bhead { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
 .plus { width: 56px; height: 56px; border-radius: 50%; border: 0; background: var(--blue); color: #fff; font-size: 34px; line-height: 1; cursor: pointer; box-shadow: 0 6px 16px rgba(49,130,246,.35); flex: 0 0 auto; }
 .plus:hover { background: var(--blue-d); }
+.bfull { position: fixed; inset: 0; z-index: 90; background: #FFF3B8; overflow-y: auto; padding: 20px clamp(16px, 4vw, 48px) 60px; }
+.bfull .bhead { position: sticky; top: 0; z-index: 2; margin: -20px calc(-1 * clamp(16px, 4vw, 48px)) 18px; padding: 16px clamp(16px, 4vw, 48px); background: #FFF3B8; border-bottom: 1px solid rgba(0,0,0,.06); }
+.bfull .bclose { margin-left: auto; }
+.bfull .post.dragover { outline: 3px dashed var(--blue); }
+.bfull .post[draggable=true] { cursor: grab; }
+.bfull .post.dragging { opacity: .4; }
+.bfull .pad { padding-top: 6px; }
+.bfull .mv { display: flex; gap: 6px; padding: 8px 12px 0; align-items: center; font-size: 12px; color: var(--sub); }
 .pad { columns: 3 230px; column-gap: 14px; }
 .pad .post { break-inside: avoid; display: inline-block; width: 100%; padding: 0; overflow: hidden; background: #fff; border: 1.5px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,.04); }
 .pad .pbody { padding: 14px 16px 16px; }
@@ -342,7 +350,7 @@ function openModal(html, wide) {
 }
 function closeModal() { $('#modal').hidden = true; $('#sheet').innerHTML = ''; }
 $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) { closeModal(); e.stopImmediatePropagation(); } });
 
 /* ====================================================================
    로그인 / 시작
@@ -375,7 +383,7 @@ $('#lform').onsubmit = async (e) => {
 function logout() {
   st.token = null; saveToken(); st.role = null; st.info = null; st.shop = null; st.groups = null; st.history = null; st.bank = null; st.jobs = null;
   st.adm = { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null, approvals: null, jobs: null }; st.w = {};
-  st.tm = { info: false, shop: false, bank: false, jobs: false, board: false }; st.tab = 'info'; st.board = null; st.boardId = ''; st.posts = null;
+  st.tm = { info: false, shop: false, bank: false, jobs: false, board: false }; st.tab = 'info'; st.board = null; st.boardId = ''; st.posts = null; renderBoardFull();
   closeModal(); $('#app').hidden = true; $('#login').hidden = false; $('#lpin').value = '';
 }
 $('#logout').onclick = logout;
@@ -1155,10 +1163,16 @@ function renderBoard() {
   const el = $('#lf-board'); if (!el) return;
   let body = leafHead('우리반 보드', '우리 반 이야기를<br>함께 남겨요', 'board', isTeacher());
   if (!st.board) body += '<div class="empty">불러오는 중이에요…</div>';
-  else if (!st.boardId) body += boardListHtml();
-  else body += boardViewHtml();
+  else body += boardListHtml();
   if (st.tm.board && isTeacher() && st.board) body += boardTeacherPanel();
-  el.innerHTML = body; applyTm(el, 'board');
+  el.innerHTML = body; applyTm(el, 'board'); renderBoardFull();
+}
+function renderBoardFull() {
+  let f = document.getElementById('bfull');
+  if (!st.boardId || !st.board) { if (f) { f.remove(); document.body.style.overflow = ''; } return; }
+  const keep = f ? f.scrollTop : 0;
+  if (!f) { f = document.createElement('div'); f.id = 'bfull'; f.className = 'bfull'; f.setAttribute('role', 'dialog'); f.setAttribute('aria-label', '보드'); document.body.appendChild(f); document.body.style.overflow = 'hidden'; }
+  f.innerHTML = boardViewHtml(); f.scrollTop = keep;
 }
 function boardListHtml() {
   const list = st.board.boards;
@@ -1166,13 +1180,13 @@ function boardListHtml() {
   return `<div class="grid">` + list.map((b) => `<button type="button" class="card bcard" data-act="bOpen" data-id="${esc(b.id)}">${b.active ? '' : '<span class="badge gray">학생에게 숨김</span>'}<div class="nm">${esc(b.name)}</div><div class="ds">${esc(b.desc)}</div><div class="st">글 ${fmt(b.count)}개</div></button>`).join('') + `</div>`;
 }
 function boardViewHtml() {
-  const back = `<div class="row-btn" style="justify-content:flex-start;margin:0 0 14px"><button type="button" class="btn tiny gray" data-act="bBack">← 보드 목록</button></div>`;
   const P = st.posts;
-  if (!P) return back + '<div class="empty">불러오는 중이에요…</div>';
+  const close = `<button type="button" class="btn tiny gray bclose" data-act="bBack">✕ 닫기</button>`;
+  if (!P) return `<div class="bhead"><div><h2 style="margin:0">불러오는 중이에요…</h2></div>${close}</div>`;
   const b = P.board, t = isTeacher();
   const plus = (t || b.active) ? `<button type="button" class="plus" data-act="bWrite" aria-label="${t ? '선생님으로 글쓰기' : '글쓰기'}" title="${t ? '선생님으로 글쓰기' : '글쓰기'}">+</button>` : '';
-  const head = `<div class="bhead">${plus}<div><h2 style="margin:0 0 4px">${esc(b.name)}</h2><p class="note" style="margin:0">${esc(b.desc)}</p></div></div>`;
-  return back + head + (P.posts.length ? `<div class="pad">${P.posts.map((p) => postHtml(p, b, t)).join('')}</div>` : '<div class="empty">아직 글이 없어요. 왼쪽 위의 + 버튼으로 첫 글을 남겨 보세요!</div>');
+  const head = `<div class="bhead">${plus}<div><h2 style="margin:0 0 4px">${esc(b.name)}</h2><p class="note" style="margin:0">${esc(b.desc)}${t ? ' · 카드를 끌어서 옮길 수 있어요' : ''}</p></div>${close}</div>`;
+  return head + (P.posts.length ? `<div class="pad">${P.posts.map((p) => postHtml(p, b, t)).join('')}</div>` : '<div class="empty">아직 글이 없어요. 왼쪽 위의 + 버튼으로 첫 글을 남겨 보세요!</div>');
 }
 function postHtml(p, b, t) {
   const photos = p.photos.length ? `<img class="pbig" src="${photoUrl(p.photos[0])}" loading="lazy" alt="${esc(p.name)}님이 올린 사진 1" data-act="bPhoto" data-id="${esc(p.photos[0])}">` +
@@ -1182,7 +1196,8 @@ function postHtml(p, b, t) {
   const acts = (p.mine ? `<button type="button" class="btn tiny gray" data-act="bEdit" data-id="${esc(p.id)}">수정</button><button type="button" class="btn tiny red" data-act="bDel" data-id="${esc(p.id)}">삭제</button>` : '') +
     (t ? `<button type="button" class="btn tiny red" data-act="bAdmDel" data-id="${esc(p.id)}">숨기기</button>` : '');
   const form = b.comments && !t && b.active ? `<div class="cmtform"><input id="cm_${esc(p.id)}" type="text" maxlength="300" placeholder="댓글" aria-label="댓글"><button type="button" class="btn tiny" data-act="bCmt" data-id="${esc(p.id)}">달기</button></div>` : '';
-  return `<article class="post">${photos}<div class="pbody"><div class="who"><b>${esc(p.name)}</b><span>${esc(p.at)}</span></div>${p.text ? `<p class="txt">${esc(p.text)}</p>` : ''}${p.link ? `<a class="lnk" href="${esc(p.link)}" target="_blank" rel="noopener noreferrer">${esc(p.link)}</a>` : ''}<div class="bar2">${like}${acts}</div>${cm ? `<div style="margin-top:8px">${cm}</div>` : ''}${form}</div></article>`;
+  const mv = t ? `<div class="mv"><button type="button" class="btn tiny gray" data-act="bMove" data-id="${esc(p.id)}" data-d="-1" aria-label="앞으로">◀ 앞으로</button><button type="button" class="btn tiny gray" data-act="bMove" data-id="${esc(p.id)}" data-d="1" aria-label="뒤로">뒤로 ▶</button></div>` : '';
+  return `<article class="post" data-pid="${esc(p.id)}"${t ? ' draggable="true"' : ''}>${mv}${photos}<div class="pbody"><div class="who"><b>${esc(p.name)}</b><span>${esc(p.at)}</span></div>${p.text ? `<p class="txt">${esc(p.text)}</p>` : ''}${p.link ? `<a class="lnk" href="${esc(p.link)}" target="_blank" rel="noopener noreferrer">${esc(p.link)}</a>` : ''}<div class="bar2">${like}${acts}</div>${cm ? `<div style="margin-top:8px">${cm}</div>` : ''}${form}</div></article>`;
 }
 
 /* 글쓰기 창 */
@@ -1256,12 +1271,27 @@ async function boardDo(text, path, body, after) {
   return r;
 }
 const afterBoards = async () => { await loadBoards(); if (st.boardId) { if (!(st.board.boards || []).some((b) => b.id === st.boardId)) { st.boardId = ''; renderBoard(); } else await reloadPosts(); } };
+async function saveOrder() {
+  try { await api(`/api/admin/board/${encodeURIComponent(st.boardId)}/order`, { method: 'POST', body: { ids: st.posts.posts.map((p) => p.id) } }); }
+  catch (e) { toast(e.message, true); reloadPosts(); }
+}
+document.addEventListener('dragstart', (e) => { const a = e.target.closest && e.target.closest('#bfull .post'); if (!a) return; st.dragId = a.dataset.pid; a.classList.add('dragging'); try { e.dataTransfer.setData('text/plain', st.dragId); e.dataTransfer.effectAllowed = 'move'; } catch (_) {} });
+document.addEventListener('dragend', () => { st.dragId = ''; document.querySelectorAll('#bfull .dragging, #bfull .dragover').forEach((x) => x.classList.remove('dragging', 'dragover')); });
+document.addEventListener('dragover', (e) => { const a = e.target.closest && e.target.closest('#bfull .post'); if (!a || !st.dragId) return; e.preventDefault(); document.querySelectorAll('#bfull .dragover').forEach((x) => x.classList.remove('dragover')); if (a.dataset.pid !== st.dragId) a.classList.add('dragover'); });
+document.addEventListener('drop', (e) => {
+  const a = e.target.closest && e.target.closest('#bfull .post'); if (!a || !st.dragId) return; e.preventDefault();
+  const arr = st.posts.posts, from = arr.findIndex((p) => p.id === st.dragId), to = arr.findIndex((p) => p.id === a.dataset.pid);
+  st.dragId = ''; if (from < 0 || to < 0 || from === to) { renderBoardFull(); return; }
+  const [x] = arr.splice(from, 1); arr.splice(to, 0, x); renderBoardFull(); saveOrder();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && st.boardId && $('#modal').hidden) ACT.bBack(); });
 const BOARD_ACT = {
   impPreview: () => impSend(false),
   impRun: () => openModal(`<h3>가져올까요?</h3><p>같은 번호의 학생이 이미 있으면 이름·직업·자리만 갱신하고, 잔액과 비밀번호는 그대로 둬요. 직업·상점·이자율 목록은 파일 내용으로 바뀌어요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="impGo">가져오기</button></div>`),
   impGo: async () => { closeModal(); await impSend(true); },
   bOpen: (d) => openBoard(d.id),
   bBack: () => { st.boardId = ''; st.posts = null; loadBoards(); },
+  bMove: (d) => { const a = st.posts.posts, i = a.findIndex((p) => p.id === d.id), j = i + Number(d.d); if (i < 0 || j < 0 || j >= a.length) return; const [x] = a.splice(i, 1); a.splice(j, 0, x); renderBoardFull(); saveOrder(); },
   bWrite: () => composeOpen('new'),
   bEdit: (d) => composeOpen('edit', st.posts.posts.find((p) => p.id === d.id)),
   cpPick: () => document.getElementById('cpFile').click(),
