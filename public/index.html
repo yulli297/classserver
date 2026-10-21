@@ -48,7 +48,7 @@ button { font-family: inherit; }
 .tab:focus-visible, .btn:focus-visible, .ghost:focus-visible, .chipbtn:focus-visible, .tm:focus-visible, .seg:focus-visible, .field input:focus-visible, .field textarea:focus-visible, .field select:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
 .folder { flex: 1 1 0; min-width: 0; position: relative; background: var(--line); border-radius: 28px; box-shadow: 0 1px 0 rgba(25,31,40,.04), 0 18px 40px rgba(25,31,40,.10); overflow: hidden; }
 .folder::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 38px; z-index: 30; background: linear-gradient(to right, #CDD2D8, #DADEE3 70%, #E5E8EB); pointer-events: none; }
-.stack { display: grid; margin-left: 38px; min-height: 780px; perspective: 2200px; perspective-origin: 0% 40%; }
+.stack { position: relative; display: grid; margin-left: 38px; min-height: 780px; perspective: 2200px; perspective-origin: 0% 40%; }
 .leaf { grid-area: 1 / 1; position: relative; background: #fff; border-radius: 0 28px 28px 0; padding: 40px 44px 48px 40px; transform-origin: left center; backface-visibility: hidden; -webkit-backface-visibility: hidden; visibility: hidden; pointer-events: none; transition: transform .85s cubic-bezier(.45,.05,.2,1), opacity .2s linear 0s, visibility 0s linear .85s; min-width: 0; }
 .leaf::after { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(to left, rgba(25,31,40,0) 30%, rgba(25,31,40,.28)); opacity: 0; transition: opacity .6s ease; pointer-events: none; }
 .leaf.cur { visibility: visible; pointer-events: auto; transition: transform .85s cubic-bezier(.45,.05,.2,1), opacity .2s linear 0s, visibility 0s linear 0s; }
@@ -139,6 +139,7 @@ button.stat { cursor: pointer; }
 
 /* ---------- 교사 모드 덮기 · 직업 활동 · 자리 ---------- */
 .leaf.tmon > .stud { display: none; }
+.leaf.out { position: absolute; top: 0; left: 0; right: 0; }
 .tool { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 22px; }
 .tasks { margin: 6px 0 0; padding-left: 20px; line-height: 1.9; font-size: 15px; }
 .chipbtn.bad { background: #FFF0F1; border-color: var(--red); color: var(--red); font-weight: 700; }
@@ -434,9 +435,13 @@ function goTab(id, first) {
   });
   TABS.forEach((t, i) => {
     const lf = $('#lf-' + t.id);
-    lf.className = 'leaf ' + (i < idx ? 'gone' : i === idx ? 'cur' : '');
+    const keepTm = lf.classList.contains('tmon');
+    lf.className = 'leaf ' + (i < idx ? 'gone' : i === idx ? 'cur' : '') + (keepTm ? ' tmon' : '') + (i === idx ? '' : (lf.dataset.out === '1' ? ' out' : ''));
     lf.style.zIndex = String(100 - i);
+    if (i === idx) lf.dataset.out = '0';
   });
+  clearTimeout(st.outT);
+  st.outT = setTimeout(() => { TABS.forEach((t, i) => { const l = $('#lf-' + t.id); if (i !== idx) { l.dataset.out = '1'; l.classList.add('out'); } }); }, 1000);
   if (!first) {
     if (id === 'shop' && !st.shop) loadShop();
     if (id === 'shop' && !st.groups && st.shopTab === '공동구매') loadGroups();
