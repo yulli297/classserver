@@ -40,6 +40,7 @@ button { font-family: inherit; }
 .tabs { display: flex; flex-direction: column; gap: 14px; padding-top: 44px; margin-right: -18px; position: relative; flex: 0 0 auto; }
 .tab { position: relative; z-index: 20; width: 124px; height: 58px; border: 0; cursor: pointer; text-align: left; padding: 0 12px 0 18px; font-size: 15px; font-weight: 700; color: var(--ink); letter-spacing: -0.2px; border-radius: 4px 12px 12px 4px; box-shadow: 0 1px 1px rgba(25,31,40,.10), 0 6px 14px rgba(25,31,40,.10); transition: transform .2s ease, box-shadow .2s ease; background-image: linear-gradient(to right, rgba(25,31,40,.10), rgba(25,31,40,0) 14px); }
 .tab::after { content: ''; position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; border-radius: 12px 0 4px 0; background: linear-gradient(135deg, rgba(255,255,255,0) 50%, rgba(25,31,40,.10) 50%); }
+.tab[data-id=etc] { border: 1px solid #E5E8EB; }
 .tab:nth-child(odd) { transform: rotate(-1.4deg); }
 .tab:nth-child(even) { transform: rotate(1.1deg); }
 .tab:hover { transform: translateX(-3px) rotate(0deg); }
@@ -317,7 +318,9 @@ const TABS = [
   { id: 'jobs', label: '직업소', bg: '#C8F1D4' },
   { id: 'work', label: '직업 활동', bg: '#E3D0FF' },
   { id: 'board', label: '우리반 보드', bg: '#FFD9B8' },
+  { id: 'etc', label: '기타', bg: '#FFFFFF', teacher: true },
 ];
+const tabsNow = () => TABS.filter((t) => !t.teacher || isTeacher());
 
 const st = {
   token: null, role: null, perms: [], myId: '', myName: '', asId: '',
@@ -443,18 +446,18 @@ $('#asSel').onchange = (e) => {
    틀 (탭 + 종이)
 ==================================================================== */
 function buildFrame() {
-  $('#tabs').innerHTML = TABS.map((t) => `<button type="button" class="tab" data-act="tab" data-id="${t.id}" style="background-color:${t.bg}">${t.label}</button>`).join('');
-  $('#stack').innerHTML = TABS.map((t) => `<section class="leaf" id="lf-${t.id}" aria-label="${t.label}"></section>`).join('');
+  $('#tabs').innerHTML = tabsNow().map((t) => `<button type="button" class="tab" data-act="tab" data-id="${t.id}" style="background-color:${t.bg}">${t.label}</button>`).join('');
+  $('#stack').innerHTML = tabsNow().map((t) => `<section class="leaf" id="lf-${t.id}" aria-label="${t.label}"></section>`).join('');
   renderAll();
 }
 function goTab(id, first) {
   st.tab = id;
-  const idx = TABS.findIndex((t) => t.id === id);
+  const idx = tabsNow().findIndex((t) => t.id === id);
   document.querySelectorAll('.tab').forEach((b, i) => {
     b.classList.toggle('on', i === idx);
     b.setAttribute('aria-current', i === idx ? 'page' : 'false');
   });
-  TABS.forEach((t, i) => {
+  tabsNow().forEach((t, i) => {
     const lf = $('#lf-' + t.id);
     const keepTm = lf.classList.contains('tmon');
     lf.className = 'leaf ' + (i < idx ? 'gone' : i === idx ? 'cur' : '') + (keepTm ? ' tmon' : '') + (i === idx ? '' : (lf.dataset.out === '1' ? ' out' : ''));
@@ -462,7 +465,7 @@ function goTab(id, first) {
     if (i === idx) lf.dataset.out = '0';
   });
   clearTimeout(st.outT);
-  st.outT = setTimeout(() => { TABS.forEach((t, i) => { const l = $('#lf-' + t.id); if (i !== idx) { l.dataset.out = '1'; l.classList.add('out'); } }); }, 1000);
+  st.outT = setTimeout(() => { tabsNow().forEach((t, i) => { const l = $('#lf-' + t.id); if (i !== idx) { l.dataset.out = '1'; l.classList.add('out'); } }); }, 1000);
   if (!first) {
     if (id === 'shop' && !st.shop) loadShop();
     if (id === 'shop' && !st.groups && st.shopTab === '공동구매') loadGroups();
@@ -474,7 +477,11 @@ function goTab(id, first) {
     if (window.innerWidth <= 760) window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 }
-function renderAll() { renderInfo(); renderBank(); renderShop(); renderJobs(); renderBoard(); renderWork(); }
+function renderAll() { renderInfo(); renderBank(); renderShop(); renderJobs(); renderBoard(); renderWork(); renderEtc(); }
+function renderEtc() {
+  const el = $('#lf-etc'); if (!el || !isTeacher()) return;
+  el.innerHTML = leafHead('기타', '선생님 도구', 'etc', false) + `<section class="etcbox">${etcPanel()}</section>`;
+}
 
 function leafHead(eyebrow, titleHtml, tmKey, tmAllowed) {
   const on = st.tm[tmKey];
@@ -524,7 +531,7 @@ function renderInfo() {
       ((st.history || []).length > 8 ? `<button type="button" class="btn sec small" data-act="allHistory">전체 보기</button>` : '') + `</div>`;
   }
   if (st.tm.info && isTeacher()) body += infoTeacherPanel();
-  el.innerHTML = body; applyTm(el, 'info');
+  el.innerHTML = body; applyTm(el, 'info'); renderEtc();
 }
 function historyHtml(list) {
   if (!list.length) return '<p class="note">아직 거래가 없어요.</p>';
@@ -772,7 +779,7 @@ function groupJoin(id) {
 /* ====================================================================
    교사 모드 — 기본정보
 ==================================================================== */
-const SUBS_INFO = [['approvals', '승인'], ['students', '학생 관리'], ['payroll', '월급 지급'], ['adjust', '행복 · 신용 조정'], ['register', '학생 등록'], ['treasury', '국고'], ['settings', '설정'], ['import', '데이터 가져오기'], ['etc', '기타']];
+const SUBS_INFO = [['approvals', '승인'], ['students', '학생 관리'], ['payroll', '월급 지급'], ['adjust', '행복 · 신용 조정'], ['register', '학생 등록'], ['treasury', '국고'], ['settings', '설정'], ['import', '데이터 가져오기']];
 function subSegs(key, list) {
   return `<div class="segs">` + list.map(([id, label]) => `<button type="button" class="seg ${st.sub[key] === id ? 'on' : ''}" data-act="sub" data-key="${key}" data-id="${id}">${label}</button>`).join('') + `</div>`;
 }
@@ -789,7 +796,6 @@ function infoTeacherPanel() {
   else if (sub === 'settings') inner = settingsPanel();
   else if (sub === 'import') inner = importPanel();
   else if (sub === 'approvals') inner = approvalsPanel();
-  else if (sub === 'etc') inner = etcPanel();
   return `<section class="tpanel" aria-label="교사 모드"><span class="lbl">교사 모드</span>${subSegs('info', SUBS_INFO)}${inner}</section>`;
 }
 async function loadAdmStudents(rerender) {
@@ -980,7 +986,7 @@ const ACT = {
   },
   sub: (d) => {
     st.sub[d.key] = d.id;
-    if (d.key === 'info' || d.key === 'etc') renderInfo(); else renderShop();
+    if (d.key === 'info') renderInfo(); else if (d.key === 'etc') renderEtc(); else renderShop();
   },
   credit: () => showCredit(),
   allHistory: () => showAllHistory(),
@@ -1328,7 +1334,7 @@ document.addEventListener('drop', (e) => {
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches && e.target.matches('#bfull .post')) { e.preventDefault(); ACT.bPost({ id: e.target.dataset.pid }); } });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && st.boardId && $('#modal').hidden) ACT.bBack(); });
 setInterval(async () => {
-  if (document.hidden || !st.w || !st.w.submit || st.w.subBusy || !(st.tab === 'work' || (st.tab === 'info' && st.tm.info))) return;
+  if (document.hidden || !st.w || !st.w.submit || st.w.subBusy || !(st.tab === 'work' || st.tab === 'etc')) return;
   if (document.activeElement && document.activeElement.id === 'subItem') return;
   try { const r = await api('/api/work/submit'); if (st.w.subBusy) return; if (JSON.stringify(r.status) !== JSON.stringify(st.w.submit.status) || r.item !== st.w.submit.item) { st.w.submit = r; if (st.tab === 'work') renderWork(); renderInfo(); } } catch (_) {}
 }, 5000);
@@ -1422,7 +1428,7 @@ const SUBS_ETC = [['jobs', '직업 변경·추가'], ['seats', '자리 확인'],
 function etcPanel() {
   const k = st.sub.etc;
   const inner = k === 'jobs' ? jobsEditorHtml() : k === 'seats' ? seatsHtml() : submitHtml(true);
-  return `<h2>기타</h2>${subSegs('etc', SUBS_ETC)}${inner}`;
+  return `${subSegs('etc', SUBS_ETC)}${inner}`;
 }
 /* ---- 직업 변경·추가 ---- */
 async function loadAdmJobs() { try { st.adm.jobs = await api('/api/admin/jobs'); } catch (e) { toast(e.message, true); } renderInfo(); }
