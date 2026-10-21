@@ -1551,14 +1551,23 @@ app.post('/api/admin/import', guard('teacher'), wrap(async (req, res) => {
 
 
   const mapping = D.학생.map((s) => ({ old: String(s.id), id: sid(s.id), name: s.이름 }));
-  if (!run) return res.json({ ok: true, preview: true, report, mapping, writes: ops.length });
+  const nameOf = {}; D.학생.forEach((x) => (nameOf[String(x.id)] = x.이름));
+  const seatList = arr(D.자리).filter((x) => num(x.줄) > 0 && num(x.칸) > 0).sort((a, b) => num(a.줄) - num(b.줄) || num(a.칸) - num(b.칸))
+    .map((x) => ({ row: num(x.줄), col: num(x.칸), price: num(x.가격), forSale: x.판매중 !== false, name: x.학생ID ? (nameOf[String(x.학생ID)] || '(없는 학생 ' + x.학생ID + ')') : '', paid: !!x.납부 }));
+  const warn = [];
+  if (!seatList.length) warn.push('파일에 자리 정보가 없어요. 기존 앱 Apps Script에 최신 내보내기 코드(tools/내보내기.gs)를 다시 붙여넣고 실행해서 새 파일을 만들어 주세요. 이 파일로 가져오면 지금 서버의 자리는 그대로 남아요.');
+  if (seatList.some((x) => x.name.startsWith('(없는'))) warn.push('앉은 학생 중 학생 목록에 없는 번호가 있어요.');
+  report.자리_앉은학생 = seatList.filter((x) => x.name && !x.name.startsWith('(없는')).length;
+  report.자리_납부 = seatList.filter((x) => x.paid).length;
+  report.통로위치 = patch.통로위치 || S.통로위치;
+  if (!run) return res.json({ ok: true, preview: true, report, mapping, seatList, warn, writes: ops.length });
 
   for (let i = 0; i < ops.length; i += 400) {
     const b = db.batch();
     ops.slice(i, i + 400).forEach(([type, ref, data, merge]) => (type === 'del' ? b.delete(ref) : merge ? b.set(ref, data, { merge: true }) : b.set(ref, data)));
     await b.commit();
   }
-  res.json({ ok: true, preview: false, report, mapping, message: '가져오기를 마쳤어요' });
+  res.json({ ok: true, preview: false, report, mapping, seatList, warn, message: '가져오기를 마쳤어요' });
 }));
 
 // ======================================================================
@@ -1812,6 +1821,17 @@ app.post('/api/work/seats/:id/delete', guard('자리관리'), wrap(async (req, r
   await cancelSeatRequests(d.id);
   await ref.delete();
   okMsg(res, '자리를 없앴어요');
+}));
+// 자리 배치 전체 지우기 (선생님만) — 자리 칸, 학생의 자리 표시, 대기 중인 징수 신청을 모두 정리해요
+app.post('/api/admin/seats/reset-all', guard('teacher'), wrap(async (req, res) => {
+  if (String(req.body.confirm || '').trim() !== '초기화') throw new UserError('확인 문구 "초기화"를 입력해 주세요');
+  const [seatSnap, studSnap, apSnap] = await Promise.all([db.collection('seats').get(), db.collection('students').get(), db.collection('approvals').where('status', '==', '대기').get()]);
+  const ops = [];
+  seatSnap.docs.forEach((d) => ops.push((b) => b.delete(d.ref)));
+  studSnap.docs.forEach((d) => { const x = d.data(); if (x.seat || x.seatPaid) ops.push((b) => b.update(d.ref, { seat: '', seatPaid: false })); });
+  apSnap.docs.forEach((d) => { if (d.data().type === '자리징수') ops.push((b) => b.update(d.ref, { status: '취소', handledAt: Timestamp.now(), by: '시스템' })); });
+  for (let i = 0; i < ops.length; i += 400) { const b = db.batch(); ops.slice(i, i + 400).forEach((f) => f(b)); await b.commit(); }
+  okMsg(res, `자리 ${seatSnap.size}칸을 모두 지웠어요. 새로 만들어 주세요`);
 }));
 // 이미 낸 자리 풀기 (선생님만, 돈을 돌려줄 수도 있어요)
 app.post('/api/admin/seats/:id/release', guard('teacher'), wrap(async (req, res) => {

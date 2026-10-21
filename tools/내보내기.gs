@@ -23,7 +23,7 @@ function 시각_(v) { try { return v ? new Date(v).toISOString() : ''; } catch (
 function 예_(v) { return v === true || String(v).toUpperCase() === 'Y' || String(v).toUpperCase() === 'TRUE'; }
 
 function 내보내기_서버버전() {
-  const 결과 = { 만든시각: new Date().toISOString(), 버전: 1 };
+  const 결과 = { 만든시각: new Date().toISOString(), 버전: 2 };
 
   // 설정 (비밀번호·소금은 제외)
   결과.설정 = {};

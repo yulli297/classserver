@@ -139,6 +139,13 @@ button.stat { cursor: pointer; }
 
 /* ---------- 교사 모드 덮기 · 직업 활동 · 자리 ---------- */
 .leaf.tmon > .stud { display: none; }
+.subgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.subc { border: 2px solid var(--line); border-radius: 14px; padding: 10px 12px; background: #fff; }
+.subc.ok { border-color: #00B26B; background: #E9F9F1; } .subc.no { border-color: var(--red); background: #FFF0F1; }
+.subc b { display: block; margin-bottom: 8px; font-size: 15px; }
+.subc .ox { display: flex; gap: 6px; }
+.subc .ox button { flex: 1; border: 0; border-radius: 10px; padding: 10px 4px; font-weight: 700; font-size: 13px; cursor: pointer; background: #F2F4F6; color: var(--sub); font-family: inherit; }
+.subc .ox .o.on { background: #00B26B; color: #fff; } .subc .ox .x.on { background: var(--red); color: #fff; }
 .leaf.out { position: absolute; top: 0; left: 0; right: 0; }
 .tool { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 22px; }
 .tasks { margin: 6px 0 0; padding-left: 20px; line-height: 1.9; font-size: 15px; }
@@ -841,7 +848,9 @@ function importPanel() {
   const im = st.forms.imp || {};
   const R = im.result;
   const rep = R ? `<div class="cbox" style="margin:14px 0"><h3>${R.preview ? '미리보기 (아직 저장 전이에요)' : '가져오기 완료'}</h3>
+    ${(R.warn || []).map((w) => `<p style="color:var(--red);font-weight:700;font-size:14px;margin:6px 0">⚠ ${esc(w)}</p>`).join('')}
     ${Object.keys(R.report).map((k) => `<div class="kv"><span>${esc(k)}</span><b>${fmt(R.report[k])}</b></div>`).join('')}
+    ${(R.seatList || []).length ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:14px">자리 ${R.seatList.length}칸 (앉은 학생 확인)</summary>${R.seatList.map((x) => `<div class="kv"><span>${x.row}줄 ${x.col}칸${x.forSale ? '' : ' · 비매품'}</span><b>${esc(x.name || '빈 자리')} · ${fmt(x.price)}${x.paid ? ' · 납부' : ''}</b></div>`).join('')}</details>` : ''}
     <details style="margin-top:8px"><summary style="cursor:pointer;font-size:14px">학생 번호 대응표 (${R.mapping.length}명)</summary>${R.mapping.map((m) => `<div class="kv"><span>${esc(m.name)}</span><b>${esc(m.old)} → ${esc(m.id)}번</b></div>`).join('')}</details></div>` : '';
   return `<h2>기존 앱에서 데이터 가져오기</h2>
     <p class="note">기존 앱의 Apps Script에서 <b>내보내기_서버버전</b>을 실행해 만든 <b>돼지공주나라_내보내기.json</b> 파일을 올려요. 학생·잔액·국고·직업·자리·신용·예금·상점·공동구매가 들어오고, 거래원장과 보드는 옮겨지지 않아요. 학생 비밀번호는 모두 1111이에요. 같은 파일을 다시 올려도 돈이 두 번 들어가지 않아요.</p>
@@ -1290,6 +1299,11 @@ document.addEventListener('drop', (e) => {
   const [x] = arr.splice(from, 1); arr.splice(to, 0, x); renderBoardFull(); saveOrder();
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && st.boardId && $('#modal').hidden) ACT.bBack(); });
+setInterval(async () => {
+  if (document.hidden || !st.w || !st.w.submit || st.w.subBusy || !(st.tab === 'work' || (st.tab === 'info' && st.tm.info))) return;
+  if (document.activeElement && document.activeElement.id === 'subItem') return;
+  try { const r = await api('/api/work/submit'); if (st.w.subBusy) return; if (JSON.stringify(r.status) !== JSON.stringify(st.w.submit.status) || r.item !== st.w.submit.item) { st.w.submit = r; if (st.tab === 'work') renderWork(); renderInfo(); } } catch (_) {}
+}, 5000);
 const BOARD_ACT = {
   impPreview: () => impSend(false),
   impRun: () => openModal(`<h3>가져올까요?</h3><p>같은 번호의 학생이 이미 있으면 이름·직업·자리만 갱신하고, 잔액과 비밀번호는 그대로 둬요. 직업·상점·이자율 목록은 파일 내용으로 바뀌어요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="impGo">가져오기</button></div>`),
@@ -1479,7 +1493,7 @@ async function loadSeats() { try { st.w.seats = await api('/api/work/seats'); } 
 function seatsHtml() {
   const v = st.w.seats;
   if (!v) { loadSeats(); return '<p class="note">불러오는 중…</p>'; }
-  if (!v.seats.length) return `<p class="note">아직 자리가 없어요. 줄과 칸 수를 넣어 한 번에 만들어요.</p><div class="form"><div class="field"><label for="sdRows">줄 수</label><input id="sdRows" type="number" value="6"></div><div class="field"><label for="sdCols">한 줄의 칸 수</label><input id="sdCols" type="number" value="4"></div><div class="field"><label for="sdPrice">처음 가격</label><input id="sdPrice" type="number" value="0"></div><button type="button" class="btn" data-act="seatInit">자리 만들기</button></div>`;
+  if (!v.seats.length) return `<p class="note">아직 자리가 없어요. 줄과 칸 수를 넣어 한 번에 만들어요.</p><div class="form"><div class="field"><label for="sdRows">줄 수</label><input id="sdRows" type="number" value="6"></div><div class="field"><label for="sdCols">한 줄의 칸 수</label><input id="sdCols" type="number" value="4"></div><div class="field"><label for="sdPrice">처음 가격</label><input id="sdPrice" type="number" value="0"></div><button type="button" class="btn" data-act="seatInit">자리 만들기</button></div>${isTeacher() ? '<div class="tool" style="margin-top:20px"><button type="button" class="btn red small" data-act="seatReset">자리 배치 모두 지우고 새로 만들기</button></div>' : ''}`;
   const map = {}; v.seats.forEach((s) => (map[s.row + '-' + s.col] = s));
   let rows = '';
   for (let r = 1; r <= v.rows; r++) {
@@ -1495,7 +1509,7 @@ function seatsHtml() {
   return `<p class="note">칸을 눌러 가격을 정하고 친구를 앉혀요. 돈은 “징수 신청”을 하면 선생님이 승인한 뒤 국고로 들어가요. 자리를 산 친구는 월세(${fmt(v.rent)})가 면제돼요. <span class="badge gray">회색</span> 비었음 · <span class="badge">파랑</span> 등록됨 · <span class="badge green">초록</span> 낸 자리</p>
     <div class="blackboard">칠판</div><div class="sgrid">${rows}</div>
     <div class="form" style="margin-top:14px"><div class="field"><label for="sbRow">줄 (비우면 전체)</label><input id="sbRow" type="number" value="${esc(fm.row || '')}"></div><div class="field"><label for="sbPrice">가격 한꺼번에</label><input id="sbPrice" type="number"></div><button type="button" class="btn small sec" data-act="seatBulk">가격 맞추기</button></div>
-    <div class="form"><div class="field"><label for="saRow">줄</label><input id="saRow" type="number"></div><div class="field"><label for="saCol">칸</label><input id="saCol" type="number"></div><div class="field"><label for="saPrice">가격</label><input id="saPrice" type="number" value="0"></div><button type="button" class="btn small sec" data-act="seatAdd">칸 추가</button></div>`;
+    <div class="form"><div class="field"><label for="saRow">줄</label><input id="saRow" type="number"></div><div class="field"><label for="saCol">칸</label><input id="saCol" type="number"></div><div class="field"><label for="saPrice">가격</label><input id="saPrice" type="number" value="0"></div><button type="button" class="btn small sec" data-act="seatAdd">칸 추가</button></div>${isTeacher() ? '<div class="tool" style="margin-top:20px"><button type="button" class="btn red small" data-act="seatReset">자리 배치 모두 지우고 새로 만들기</button></div>' : ''}`;
 }
 function seatModal(id) {
   const v = st.w.seats, s = v.seats.find((x) => x.id === id); if (!s) return;
@@ -1523,11 +1537,12 @@ function submitHtml(teacher) {
   const v = st.w.submit;
   if (!v) { loadSubmit(); return '<p class="note">불러오는 중…</p>'; }
   const n1 = Object.values(v.status).filter((x) => x === '제출').length, n2 = Object.values(v.status).filter((x) => x === '미제출').length;
-  return `<p class="note">친구 이름을 누를 때마다 <b>제출 → 미제출 → 없음</b>으로 바뀌어요. 두 명이 함께 체크해도 같은 화면이 공유돼요. ${teacher ? '다 되면 “기록으로 저장”으로 신용점수에 반영해요.' : '기록 저장은 선생님이 해요.'}</p>
+  const cards = v.students.map((s) => { const x = v.status[s.id] || ''; return `<div class="subc ${x === '제출' ? 'ok' : x === '미제출' ? 'no' : ''}"><b>${esc(s.name)}</b><div class="ox"><button type="button" class="o ${x === '제출' ? 'on' : ''}" data-act="subSet" data-id="${esc(s.id)}" data-s="제출" aria-pressed="${x === '제출'}" aria-label="${esc(s.name)} 제출">O 제출</button><button type="button" class="x ${x === '미제출' ? 'on' : ''}" data-act="subSet" data-id="${esc(s.id)}" data-s="미제출" aria-pressed="${x === '미제출'}" aria-label="${esc(s.name)} 미제출">X 미제출</button></div></div>`; }).join('');
+  return `<p class="note">친구마다 <b>제출</b> 또는 <b>미제출</b> 버튼을 누르면 바로 바뀌어요. 같은 버튼을 한 번 더 누르면 체크가 지워져요. 두 명이 함께 체크해도 같은 화면이 공유돼요(몇 초마다 새로 고쳐요). ${teacher ? '다 되면 “기록으로 저장”으로 신용점수에 반영해요.' : '기록 저장은 선생님이 해요.'}</p>
     <div class="form"><div class="field"><label for="subItem">항목 이름</label><input id="subItem" maxlength="60" value="${esc(v.item)}" placeholder="예) 수학 숙제"></div></div>
-    <div class="chips">${v.students.map((s) => { const x = v.status[s.id] || ''; return `<button type="button" class="chipbtn ${x === '제출' ? 'sel' : x === '미제출' ? 'bad' : ''}" data-act="subTog" data-id="${esc(s.id)}">${esc(s.name)} <small>${x || '—'}</small></button>`; }).join('')}</div>
-    <p class="note">제출 ${n1}명 · 미제출 ${n2}명${v.by ? ` · 마지막 수정: ${esc(v.by)}` : ''}</p>
-    <div class="row-btn" style="margin-bottom:6px"><button type="button" class="btn tiny gray" data-act="subAll" data-id="제출">모두 제출</button><button type="button" class="btn tiny gray" data-act="subAll" data-id="미제출">모두 미제출</button><button type="button" class="btn tiny gray" data-act="subAll" data-id="">모두 지우기</button><button type="button" class="btn tiny gray" data-act="subReload">새로고침</button>${teacher ? '<button type="button" class="btn tiny" data-act="subSave">기록으로 저장</button>' : ''}</div>`;
+    <div class="row-btn" style="margin:6px 0"><button type="button" class="btn tiny gray" data-act="subAll" data-id="제출">모두 제출</button><button type="button" class="btn tiny gray" data-act="subAll" data-id="미제출">모두 미제출</button><button type="button" class="btn tiny gray" data-act="subAll" data-id="">모두 지우기</button><button type="button" class="btn tiny gray" data-act="subReload">새로고침</button>${teacher ? '<button type="button" class="btn tiny" data-act="subSave">기록으로 저장</button>' : ''}</div>
+    <p class="note" style="margin:6px 0"><b>제출 ${n1}명 · 미제출 ${n2}명 · 아직 ${v.students.length - n1 - n2}명</b>${v.by ? ` · 마지막 수정: ${esc(v.by)}` : ''}</p>
+    <div class="subgrid">${cards}</div>`;
 }
 /* ---- 신용등급 평가원 ---- */
 async function loadCredit() { try { st.w.credit = await api('/api/work/credit'); } catch (e) { toast(e.message, true); } renderWork(); }
@@ -1583,6 +1598,8 @@ const WORK_ACT = {
   },
   /* 자리 */
   seatOpen: (d) => seatModal(d.id),
+  seatReset: () => openModal(`<h3>자리 배치를 모두 지울까요?</h3><p>모든 자리 칸과 학생들의 자리 등록이 사라지고, 대기 중인 징수 신청도 취소돼요. 이미 낸 돈은 돌려주지 않고, 자리를 샀던 학생은 월세 면제가 풀려요. 확인하려면 <b>초기화</b>라고 적어 주세요.</p><div class="field"><input id="rstWord" placeholder="초기화"></div><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="seatResetGo">모두 지우기</button></div>`),
+  seatResetGo: async () => { const r = await run('지우는 중이에요', () => api('/api/admin/seats/reset-all', { method: 'POST', body: { confirm: val('rstWord') } })); if (r) { closeModal(); toast(r.message); st.info = null; st.adm.students = null; st.w.seats = null; loadSeats(); loadApprovals(false); loadAdmStudents(); } },
   seatInit: async () => { const r = await run('만드는 중이에요', () => api('/api/work/seats/init', { method: 'POST', body: { rows: val('sdRows'), cols: val('sdCols'), price: val('sdPrice') } })); if (r) { toast(r.message); loadSeats(); } },
   seatAdd: async () => { const r = await run('만드는 중이에요', () => api('/api/work/seats/add', { method: 'POST', body: { row: val('saRow'), col: val('saCol'), price: val('saPrice') } })); if (r) { toast(r.message); loadSeats(); } },
   seatBulk: async () => { const r = await run('바꾸는 중이에요', () => api('/api/work/seats/bulk-price', { method: 'POST', body: { row: val('sbRow'), price: val('sbPrice') } })); if (r) { toast(r.message); loadSeats(); } },
@@ -1602,12 +1619,15 @@ const WORK_ACT = {
   /* 국세청 */
   tqGo: async () => { const r = await run('신청하는 중이에요', () => api('/api/work/treasury/request', { method: 'POST', body: { kind: val('tqKind'), amount: val('tqAmt'), studentId: val('tqWho'), reason: val('tqWhy') } })); if (r) { toast(r.message); st.adm.treasury = null; loadTreasury(); } },
   /* 제출 */
-  subTog: async (d) => {
-    const cur_ = (st.w.submit.status[d.id] || ''), next = cur_ === '' ? '제출' : cur_ === '제출' ? '미제출' : '';
-    st.w.submit.status[d.id] = next; if (!next) delete st.w.submit.status[d.id];
-    const item = val('subItem'); st.w.submit.item = item;
+  subSet: async (d) => {
+    const cur_ = st.w.submit.status[d.id] || '', next = cur_ === d.s ? '' : d.s;
+    if (next) st.w.submit.status[d.id] = next; else delete st.w.submit.status[d.id];
+    const it = document.getElementById('subItem'); const item = it ? it.value : st.w.submit.item; st.w.submit.item = item;
+    st.w.subBusy = (st.w.subBusy || 0) + 1;
     if (st.tab === 'work') renderWork(); renderInfo();
-    try { st.w.submit = await api('/api/work/submit/check', { method: 'POST', body: { studentId: d.id, status: next, item } }); } catch (e) { toast(e.message, true); }
+    try { const r = await api('/api/work/submit/check', { method: 'POST', body: { studentId: d.id, status: next, item } }); if (st.w.subBusy === 1) st.w.submit = r; }
+    catch (e) { toast(e.message, true); st.w.submit = null; }
+    st.w.subBusy--;
     if (st.tab === 'work') renderWork(); renderInfo();
   },
   subAll: async (d) => { const r = await run('처리하는 중이에요', () => api('/api/work/submit/all', { method: 'POST', body: { status: d.id } })); if (r) { st.w.submit = r; if (st.tab === 'work') renderWork(); renderInfo(); } },
