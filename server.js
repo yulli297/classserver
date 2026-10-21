@@ -1355,6 +1355,122 @@ app.post('/api/admin/board/comment/:id/delete', guard('teacher'), wrap(async (re
 }));
 
 
+// ======================================================================
+//  기존 앱(구글 시트) 데이터 가져오기 — tools/내보내기.gs 가 만든 JSON을 올립니다
+//   · 거래원장은 가져오지 않아요. 학생 잔액·국고는 '이월' 한 줄로 시작합니다.
+//   · 같은 파일을 두 번 올려도 돈이 두 번 들어가지 않아요 (번호가 정해져 있어요)
+// ======================================================================
+app.post('/api/admin/import', guard('teacher'), wrap(async (req, res) => {
+  const D = req.body.data;
+  if (!D || !Array.isArray(D.학생)) throw new UserError('내보내기 파일이 아니에요');
+  const run = req.body.run === true;
+  const S = await getSettings();
+  const now = new Date(), at = Timestamp.now();
+
+  // 학생 번호: 기존 번호가 모두 숫자면 그대로, 아니면 시트 순서대로 1, 2, 3…
+  const allNum = D.학생.length > 0 && D.학생.every((s) => /^[0-9]+$/.test(String(s.id)));
+  const idMap = {};
+  D.학생.forEach((s, i) => (idMap[String(s.id)] = allNum ? String(Number(s.id)) : String(i + 1)));
+  const sid = (old) => idMap[String(old)];
+  const arr = (x) => (Array.isArray(x) ? x : []);
+  const iso = (v) => { const d = v ? new Date(v) : null; return d && !isNaN(d) ? Timestamp.fromDate(d) : at; };
+  const num = (v) => Number(v) || 0;
+
+  const ops = []; // [type, ref, data, merge]
+  const put = (coll, id, data, merge) => ops.push(['set', db.collection(coll).doc(String(id)), data, merge]);
+  const del = (coll, id) => ops.push(['del', db.collection(coll).doc(String(id))]);
+  const report = {};
+
+  // 설정
+  const patch = {};
+  Object.keys(D.설정 || {}).forEach((k) => {
+    if (!(k in DEFAULTS)) return;
+    const v = D.설정[k];
+    patch[k] = typeof DEFAULTS[k] === 'number' ? Number(v) : String(v);
+    if (typeof DEFAULTS[k] === 'number' && !Number.isFinite(patch[k])) delete patch[k];
+  });
+  if (Object.keys(patch).length) put('meta', 'settings', patch, true);
+  report.설정 = Object.keys(patch).length;
+
+  // 직업 · 상점 · 이자율 (파일에 있으면 기존 값으로 바꿔요)
+  const replaceAll = async (coll, rows, make, idOf) => {
+    if (!rows.length) return 0;
+    const keep = new Set(rows.map(idOf));
+    (await db.collection(coll).get()).docs.forEach((d) => { if (!keep.has(d.id)) del(coll, d.id); });
+    rows.forEach((r, i) => put(coll, idOf(r), make(r, i), false));
+    return rows.length;
+  };
+  report.직업 = await replaceAll('jobs', arr(D.직업), (j, i) => ({
+    name: j.이름, salary: num(j.월급), minCredit: num(j.최소신용) || 5, minMath: num(j.최소수학) || 5, desc: j.설명 || '',
+    perms: j.권한 ? String(j.권한).split(',').map((x) => x.trim()).filter(Boolean) : [], capacity: num(j.정원), source: j.재원 === '국고' ? '국고' : '민간', order: i,
+  }), (j) => String(j.id));
+  const today = dayStr(now), cycle = cycleOf(now, startDayOf({ ...S, ...patch }));
+  report.상점 = await replaceAll('shopItems', arr(D.상점), (x, i) => ({
+    category: x.분류, name: x.이름, price: num(x.가격), desc: x.설명 || '', active: x.활성 !== false,
+    stock: x.남은재고 === null || x.남은재고 === undefined ? null : num(x.남은재고), limit: x.한도 === null || x.한도 === undefined ? null : num(x.한도),
+    baseline: 0, sold: 0, order: i,
+  }), (x) => String(x.id));
+  report.이자율 = await replaceAll('rates', arr(D.이자율).filter((r) => num(r.일수) > 0), (r) => ({ days: num(r.일수), name: r.이름, rates: arr(r.이율).map(num) }), (r) => String(num(r.일수)));
+  clearCaches();
+
+  // 이번 세금 주기에 낸 학생 · 오늘 산 개수 (다시 내거나 한도를 넘기지 않도록)
+  let salesN = 0;
+  arr(D.상점).forEach((x) => {
+    arr(x.이번주기납부).forEach((old) => { if (sid(old)) { put('sales', `IMP-${x.id}-${sid(old)}-c`, { itemId: String(x.id), studentId: sid(old), price: num(x.가격), day: '', cycle, at, imported: true }, false); salesN++; } });
+    Object.keys(x.오늘구매 || {}).forEach((old) => { if (!sid(old)) return; for (let k = 0; k < num(x.오늘구매[old]); k++) put('sales', `IMP-${x.id}-${sid(old)}-t${k}`, { itemId: String(x.id), studentId: sid(old), price: num(x.가격), day: today, cycle: 'import-' + today, at, imported: true }, false); });
+  });
+  report.납부기록 = salesN;
+
+  // 학생 (새 학생은 비밀번호 1111, 이미 있는 학생은 비밀번호·잔액을 건드리지 않아요)
+  const existing = new Map((await db.collection('students').get()).docs.map((d) => [d.id, d.data()]));
+  const seatOf = {};
+  arr(D.자리).forEach((s) => { if (sid(s.학생ID)) seatOf[sid(s.학생ID)] = { seat: `${s.줄}-${s.칸}`, paid: !!s.납부 }; });
+  let moved = 0, sumBal = 0;
+  D.학생.forEach((s) => {
+    const id = sid(s.id), bal = Math.round(num((D.잔액 || {})[String(s.id)]));
+    const base = { name: s.이름, jobId: s.직업ID || '', math: s.수학 === null || s.수학 === undefined ? null : num(s.수학), seat: (seatOf[id] || {}).seat || '', seatPaid: !!(seatOf[id] || {}).paid };
+    if (existing.has(id)) { put('students', id, base, true); return; }
+    put('students', id, { ...base, balance: bal, pinHash: hashPin(DEFAULT_PIN) }, false);
+    if (bal !== 0) {
+      put('ledger', `IMPORT-OPEN-${id}`, { studentId: id, kind: '이월', amount: bal, reason: '기존 앱에서 옮겨온 잔액', memo: '', by: '관리자', balanceAfter: bal, at }, false);
+      moved++; sumBal += bal;
+    }
+  });
+  report.학생 = D.학생.length; report.잔액이월 = moved; report.잔액합계 = sumBal;
+
+  // 국고 (이미 가져온 적 있으면 같은 번호라 덮어쓰기만 돼요)
+  const tb = Math.round(num(D.국고잔액));
+  if (tb !== 0) put('treasury', 'IMPORT-OPEN-T', { kind: tb > 0 ? '기타수입' : '기타지출', amount: tb, reason: '기존 앱에서 옮겨온 국고 잔액', studentId: '', by: '관리자', at }, false);
+  report.국고 = tb;
+
+  // 신용 기록 · 예금 · 공동구매
+  arr(D.신용).forEach((c, i) => { if (sid(c.학생ID)) put('credits', `IMP-${c.id || i}`, { studentId: sid(c.학생ID), item: c.항목 || '', status: c.상태 || '', points: num(c.점수), by: c.승인자 || '', at: iso(c.시각) }, false); });
+  report.신용기록 = arr(D.신용).length;
+  arr(D.예금).forEach((d, i) => { if (sid(d.학생ID)) put('deposits', `IMP-${d.id || i}`, { studentId: sid(d.학생ID), principal: num(d.원금), days: num(d.일수), name: d.이름 || `${num(d.일수)}일`, rate: num(d.이자율), createdAt: iso(d.가입), maturity: iso(d.만기), status: '예치중', interest: 0 }, false); });
+  report.예금 = arr(D.예금).length;
+  arr(D.공동구매).forEach((g) => put('groupGoals', `IMP-${g.id}`, { title: g.제목, desc: g.설명 || '', target: num(g.목표), raised: num(g.모인), status: '진행중', min: g.최소 === null || g.최소 === undefined ? null : num(g.최소), createdMs: g.생성 ? new Date(g.생성).getTime() : Date.now() }, false));
+  arr(D.공동참여).forEach((j, i) => { if (sid(j.학생ID)) put('groupJoins', `IMP-${j.id || i}`, { goalId: `IMP-${j.목표ID}`, studentId: sid(j.학생ID), amount: num(j.금액), at: iso(j.시각), cancelled: false }, false); });
+  report.공동구매 = arr(D.공동구매).length;
+
+  // 보드 (사진은 옮기지 않아요)
+  const au = (old) => (String(old) === TEACHER_AUTHOR ? TEACHER_AUTHOR : sid(old) || String(old));
+  arr(D.보드).forEach((b) => put('boards', `IMP-${b.id}`, { name: b.이름, desc: b.설명 || '', comments: b.댓글 !== false, likes: b.추천 !== false, active: b.활성 !== false, createdMs: b.생성 ? new Date(b.생성).getTime() : Date.now() }, false));
+  arr(D.보드글).forEach((p) => put('boardPosts', `IMP-${p.id}`, { boardId: `IMP-${p.보드ID}`, authorId: au(p.학생ID), at: iso(p.시각), text: (p.내용 || '') + (num(p.사진수) ? `\n(사진 ${num(p.사진수)}장은 새 서버로 옮겨지지 않았어요)` : ''), link: p.링크 || '', photoIds: [], deleted: false }, false));
+  arr(D.보드댓글).forEach((c, i) => put('boardComments', `IMP-${c.id || i}`, { postId: `IMP-${c.글ID}`, boardId: `IMP-${(arr(D.보드글).find((p) => p.id === c.글ID) || {}).보드ID}`, studentId: au(c.학생ID), at: iso(c.시각), text: c.내용 || '', deleted: false }, false));
+  arr(D.보드추천).forEach((l) => { const p = arr(D.보드글).find((x) => x.id === l.글ID); if (p) put('boardLikes', `IMP-${l.글ID}_${au(l.학생ID)}`, { postId: `IMP-${l.글ID}`, boardId: `IMP-${p.보드ID}`, studentId: au(l.학생ID), at }, false); });
+  report.보드글 = arr(D.보드글).length;
+
+  const mapping = D.학생.map((s) => ({ old: String(s.id), id: sid(s.id), name: s.이름 }));
+  if (!run) return res.json({ ok: true, preview: true, report, mapping, writes: ops.length });
+
+  for (let i = 0; i < ops.length; i += 400) {
+    const b = db.batch();
+    ops.slice(i, i + 400).forEach(([type, ref, data, merge]) => (type === 'del' ? b.delete(ref) : merge ? b.set(ref, data, { merge: true }) : b.set(ref, data)));
+    await b.commit();
+  }
+  res.json({ ok: true, preview: false, report, mapping, message: '가져오기를 마쳤어요' });
+}));
+
 // ----------------------------------------------------------------------
 //  설정
 // ----------------------------------------------------------------------

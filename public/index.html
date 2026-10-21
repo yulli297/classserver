@@ -716,7 +716,7 @@ function renderPlaceholders() {
 /* ====================================================================
    교사 모드 — 기본정보
 ==================================================================== */
-const SUBS_INFO = [['students', '학생 관리'], ['payroll', '월급 지급'], ['adjust', '행복 · 신용 조정'], ['register', '학생 등록'], ['treasury', '국고'], ['settings', '설정']];
+const SUBS_INFO = [['students', '학생 관리'], ['payroll', '월급 지급'], ['adjust', '행복 · 신용 조정'], ['register', '학생 등록'], ['treasury', '국고'], ['settings', '설정'], ['import', '데이터 가져오기']];
 function subSegs(key, list) {
   return `<div class="segs">` + list.map(([id, label]) => `<button type="button" class="seg ${st.sub[key] === id ? 'on' : ''}" data-act="sub" data-key="${key}" data-id="${id}">${label}</button>`).join('') + `</div>`;
 }
@@ -731,6 +731,7 @@ function infoTeacherPanel() {
   else if (sub === 'register') inner = registerPanel(a);
   else if (sub === 'treasury') inner = treasuryPanel(true);
   else if (sub === 'settings') inner = settingsPanel();
+  else if (sub === 'import') inner = importPanel();
   return `<section class="tpanel" aria-label="교사 모드"><span class="lbl">교사 모드</span>${subSegs('info', SUBS_INFO)}${inner}</section>`;
 }
 async function loadAdmStudents(rerender) {
@@ -797,6 +798,30 @@ function settingsPanel() {
   return `<h2>설정</h2><div class="form">` + SET_LABELS.map(([k, l, h]) => `<div class="field"><label for="set_${k}">${l}</label><input id="set_${k}" data-key="${k}" value="${esc(s[k])}">${h ? `<small class="note" style="margin:0">${h}</small>` : ''}</div>`).join('') + `</div><button type="button" class="btn" data-act="setGo">설정 저장</button>`;
 }
 async function loadSettings() { try { st.adm.settings = await api('/api/admin/settings'); renderInfo(); } catch (e) { toast(e.message, true); } }
+
+/* ---------- 기존 앱 데이터 가져오기 ---------- */
+function importPanel() {
+  const im = st.forms.imp || {};
+  const R = im.result;
+  const rep = R ? `<div class="cbox" style="margin:14px 0"><h3>${R.preview ? '미리보기 (아직 저장 전이에요)' : '가져오기 완료'}</h3>
+    ${Object.keys(R.report).map((k) => `<div class="kv"><span>${esc(k)}</span><b>${fmt(R.report[k])}</b></div>`).join('')}
+    <details style="margin-top:8px"><summary style="cursor:pointer;font-size:14px">학생 번호 대응표 (${R.mapping.length}명)</summary>${R.mapping.map((m) => `<div class="kv"><span>${esc(m.name)}</span><b>${esc(m.old)} → ${esc(m.id)}번</b></div>`).join('')}</details></div>` : '';
+  return `<h2>기존 앱에서 데이터 가져오기</h2>
+    <p class="note">기존 앱의 Apps Script에서 <b>내보내기_서버버전</b>을 실행해 만든 <b>돼지공주나라_내보내기.json</b> 파일을 올려요. 학생·잔액·국고·직업·자리·신용·예금·상점·공동구매·보드 글이 들어오고, 거래원장과 보드 사진은 옮겨지지 않아요. 학생 비밀번호는 모두 1111이에요. 같은 파일을 다시 올려도 돈이 두 번 들어가지 않아요.</p>
+    <div class="form"><div class="field"><label for="impFile">내보내기 파일</label><input id="impFile" type="file" accept=".json,application/json" style="height:auto;padding:10px"></div></div>
+    <div class="row-btn" style="margin-bottom:8px"><button type="button" class="btn gray" data-act="impPreview">1. 미리보기</button><button type="button" class="btn" data-act="impRun" ${R && R.preview ? '' : 'disabled'}>2. 가져오기</button></div>${rep}`;
+}
+async function impSend(run) {
+  const f = document.getElementById('impFile') && document.getElementById('impFile').files[0];
+  if (!f && !(st.forms.imp && st.forms.imp.data)) return toast('파일을 먼저 골라 주세요', true);
+  if (f) { try { st.forms.imp = { data: JSON.parse(await f.text()) }; } catch (e) { return toast('내보내기 파일을 읽을 수 없어요', true); } }
+  const r = await run_('처리하는 중이에요', () => api('/api/admin/import', { method: 'POST', body: { data: st.forms.imp.data, run } }));
+  if (!r) return;
+  st.forms.imp.result = r;
+  if (run) { toast(r.message); st.adm = { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null }; st.info = st.shop = st.bank = st.jobs = st.groups = st.board = null; await loadAdmStudents(false); fillAsSel(); }
+  renderInfo();
+}
+const run_ = run;
 
 /* ---------- 국고 ---------- */
 async function loadTreasury() { try { st.adm.treasury = await api('/api/admin/treasury'); } catch (e) { toast(e.message, true); } renderInfo(); renderShop(); }
@@ -1210,6 +1235,9 @@ async function boardDo(text, path, body, after) {
 }
 const afterBoards = async () => { await loadBoards(); if (st.boardId) { if (!(st.board.boards || []).some((b) => b.id === st.boardId)) { st.boardId = ''; renderBoard(); } else await reloadPosts(); } };
 const BOARD_ACT = {
+  impPreview: () => impSend(false),
+  impRun: () => openModal(`<h3>가져올까요?</h3><p>같은 번호의 학생이 이미 있으면 이름·직업·자리만 갱신하고, 잔액과 비밀번호는 그대로 둬요. 직업·상점·이자율 목록은 파일 내용으로 바뀌어요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="impGo">가져오기</button></div>`),
+  impGo: async () => { closeModal(); await impSend(true); },
   bOpen: (d) => openBoard(d.id),
   bBack: () => { st.boardId = ''; st.posts = null; loadBoards(); },
   bWrite: () => composeOpen('new'),
