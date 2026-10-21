@@ -48,8 +48,9 @@ function 내보내기_서버버전() {
              상태: 글자_(r['상태']), 점수: Number(r['점수']) || 0, 승인자: 글자_(r['승인자']) };
   });
 
-  결과.자리 = 표읽기_('자리배치').filter(function (r) { return 글자_(r['등록학생ID']); }).map(function (r) {
-    return { 줄: 글자_(r['줄']), 칸: 글자_(r['칸']), 학생ID: 글자_(r['등록학생ID']), 납부: 예_(r['납부완료']) };
+  결과.자리 = 표읽기_('자리배치').filter(function (r) { return 글자_(r['줄']) && 글자_(r['칸']); }).map(function (r) {
+    return { 줄: 글자_(r['줄']), 칸: 글자_(r['칸']), 가격: Number(r['가격']) || 0, 판매중: 글자_(r['판매중']).toUpperCase() !== 'N',
+             학생ID: 글자_(r['등록학생ID']), 납부: 예_(r['납부완료']) };
   });
 
   결과.직업 = 표읽기_('직업목록').filter(function (r) { return 글자_(r['직업ID']); }).map(function (r) {
@@ -95,28 +96,7 @@ function 내보내기_서버버전() {
     return { id: 글자_(r['참여ID']), 목표ID: 글자_(r['목표ID']), 학생ID: 글자_(r['학생ID']), 금액: Number(r['금액']) || 0, 시각: 시각_(r['시각']) };
   });
 
-  // 보드 (사진은 옮기지 않고 글·댓글·추천만)
-  결과.보드 = 표읽기_('우리반보드').filter(function (r) { return 글자_(r['보드ID']); }).map(function (r) {
-    return { id: 글자_(r['보드ID']), 이름: 글자_(r['보드이름']), 설명: 글자_(r['설명']),
-             댓글: 글자_(r['댓글허용']).toUpperCase() !== 'N', 추천: 글자_(r['추천허용']).toUpperCase() !== 'N',
-             활성: 글자_(r['활성']).toUpperCase() !== 'N', 생성: 시각_(r['생성일']) };
-  });
-  const 살아있는글 = {};
-  결과.보드글 = 표읽기_('보드글').filter(function (r) { return !예_(r['삭제됨']) && 글자_(r['글ID']); }).map(function (r) {
-    살아있는글[글자_(r['글ID'])] = true;
-    let 사진수 = 글자_(r['미리보기']) ? 1 : 0;
-    try { if (글자_(r['추가사진'])) 사진수 += JSON.parse(글자_(r['추가사진'])).length; } catch (e) { }
-    return { id: 글자_(r['글ID']), 보드ID: 글자_(r['보드ID']), 학생ID: 글자_(r['학생ID']), 시각: 시각_(r['시각']),
-             내용: 글자_(r['내용']), 링크: 글자_(r['링크']), 사진수: 사진수 };
-  });
-  결과.보드댓글 = 표읽기_('보드댓글').filter(function (r) { return !예_(r['삭제됨']) && 살아있는글[글자_(r['글ID'])]; }).map(function (r) {
-    return { id: 글자_(r['댓글ID']), 글ID: 글자_(r['글ID']), 학생ID: 글자_(r['학생ID']), 시각: 시각_(r['시각']), 내용: 글자_(r['내용']) };
-  });
-  결과.보드추천 = 표읽기_('보드추천').filter(function (r) { return 살아있는글[글자_(r['글ID'])]; }).map(function (r) {
-    return { 글ID: 글자_(r['글ID']), 학생ID: 글자_(r['학생ID']) };
-  });
-
   const 파일 = DriveApp.createFile('돼지공주나라_내보내기.json', JSON.stringify(결과), 'application/json');
   Logger.log('완료! 이 파일을 내려받으세요: ' + 파일.getUrl());
-  Logger.log('학생 ' + 결과.학생.length + '명 · 신용기록 ' + 결과.신용.length + '건 · 보드글 ' + 결과.보드글.length + '개');
+  Logger.log('학생 ' + 결과.학생.length + '명 · 신용기록 ' + 결과.신용.length + '건 · 자리 ' + 결과.자리.length + '칸');
 }

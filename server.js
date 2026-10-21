@@ -40,6 +40,10 @@ const DEFAULTS = {
   예금최대일수: 60,
   보드최대사진: 5,
   글당최대댓글: 50,
+  지각벌금: 15,
+  일일벌금건수: 5,
+  벌금최대금액: 500,
+  통로위치: '2,4',
 };
 const EDITABLE_SETTINGS = Object.keys(DEFAULTS);
 
@@ -78,10 +82,39 @@ const SEED_ITEMS = [
 ];
 // 이자율표 [일수, 이름, 1~5등급 이자율(%)]
 const SEED_RATES = [
+  [7, '1주', [3, 2, 2, 1, 1]], // 1주·2주 이자율은 예시값이에요. 은행 교사 모드에서 바꿔 주세요
   [14, '2주', [4, 3, 2, 1, 1]],
-  [30, '1개월', [8, 7, 5, 3, 2]],
-  [60, '2개월', [14, 12, 9, 6, 3]],
+  [30, '1달', [15, 13, 11, 7, 5]],
 ];
+// 이름(1주·2주·1달)에서 일수를 읽어요. 이름과 일수가 어긋나지 않게 하려고요
+function daysFromName(name, fallback) {
+  const t = String(name || '');
+  let m = t.match(/(\d+)\s*주/); if (m) return Number(m[1]) * 7;
+  m = t.match(/(\d+)\s*(개월|달)/); if (m) return Number(m[1]) * 30;
+  if (/한\s*달/.test(t)) return 30;
+  m = t.match(/(\d+)\s*일/); if (m) return Number(m[1]);
+  return fallback;
+}
+// 직업별 할 일 (직업 활동 배너에 표시) — [매일, 주기적]
+const SEED_TASKS = {
+  '국무총리': [[], ['학급 어린이회 진행', '전교 어린이회 참석']],
+  '교육부 장관': [['매일 달력 바꾸기', '지나간 급식 X 표시 하기'], []],
+  '외교부 장관': [[], ['가정통신문이나 활동지 챙겨오기', '다른 반에 배달하기']],
+  '환경부 장관': [['공기청정기 켜고 끄기', '등교하면 창문열기'], ['교실 대청소']],
+  '국토교통부 장관': [[], ['교실 부동산 관리']],
+  '국세청장': [['세금 판 관리'], ['세금 사용 관리하기(보너스 지급 등)']],
+  '통계청 공무원': [[], ['숙제와 가정통신문 제출 확인']],
+  '외교부 공무원': [[], ['가정통신문과 활동지 다른 반에 배달하기']],
+  '환경부 공무원': [['분단 별로 청소 검사'], ['분리수거']],
+  '신용등급 평가원': [[], ['신용등급 판 최신화', '신용등급 점수 기준 조정']],
+  '경찰': [['지각 학생 체크', '욕설 학생 체크'], []],
+  '성실 은행장': [[], ['만기된 친구들의 예금 확인하기']],
+  '친절병원': [[], ['다친 친구들이 필요한 물건 제공하기', '모자란 물건 보건실 가서 채워오기']],
+  '나눔 슈퍼': [['재고 확인해서 맞추기'], ['모자란 재고 채우기']],
+  '우리 전자': [['패드 충전함 열고 닫기'], []],
+  '아르바이트생': [[], []],
+};
+const JOB_PERMS = ['자리관리', '국고관리', '제출승인', '신용관리', '벌금', '은행관리', '상점관리'];
 const CATEGORIES = ['세금', '간식', '쿠폰'];
 const TREASURY_IN = ['소득세', '월세', '전기세', '건강보험료', '벌금', '자리판매', '상점수입', '공동구매', '기타수입'];
 const TREASURY_OUT = ['공무원월급', '은행이자', '보너스', '부동산개발', '기타지출'];
@@ -100,9 +133,17 @@ async function ensureSeed() {
       b.set(db.collection('jobs').doc(j[0]), {
         name: j[1], salary: j[2], minCredit: j[3], minMath: j[4], desc: j[5],
         perms: j[6] ? j[6].split(',') : [], capacity: j[7], source: j[8], order: i,
+        daily: (SEED_TASKS[j[1]] || [[], []])[0], periodic: (SEED_TASKS[j[1]] || [[], []])[1], reportable: j[1] === '아르바이트생',
       })
     );
     await b.commit();
+  }
+  // 할 일 목록이 없는 직업(예전에 만든 것·가져온 것)에는 이름이 같은 기본 할 일을 채워 줘요
+  const allJobs = await db.collection('jobs').get();
+  for (const d of allJobs.docs) {
+    if (Array.isArray(d.data().daily)) continue;
+    const t = SEED_TASKS[d.data().name] || [[], []];
+    await d.ref.update({ daily: t[0], periodic: t[1], reportable: d.data().name === '아르바이트생' });
   }
   const items = await db.collection('shopItems').limit(1).get();
   if (items.empty) {
@@ -361,7 +402,7 @@ app.get('/api/whoami', auth, wrap(async (req, res) => {
   const d = await db.collection('students').doc(req.user.id).get();
   const jobs = await getJobs();
   const job = d.exists ? jobs[d.data().jobId] : null;
-  res.json({ role: 'student', id: req.user.id, name: d.exists ? d.data().name : '', perms: job ? job.perms || [] : [] });
+  res.json({ role: 'student', id: req.user.id, name: d.exists ? d.data().name : '', perms: job ? job.perms || [] : [], job: job ? { id: job.id, name: job.name, desc: job.desc || '', daily: job.daily || [], periodic: job.periodic || [], reportable: !!job.reportable } : null });
 }));
 
 app.get('/api/history', auth, wrap(async (req, res) => {
@@ -918,6 +959,7 @@ app.get('/api/jobs', auth, wrap(async (req, res) => {
       id: j.id, name: j.name, salary: j.salary, net: netPay(j.salary, S), minCredit: j.minCredit, minMath: j.minMath, desc: j.desc,
       capacity: j.capacity, count: filled, open: j.capacity ? filled < j.capacity : true, source: j.source,
       eligible: creditOk && mathOk, mine: info.job ? info.job.id === j.id : false,
+      daily: j.daily || [], periodic: j.periodic || [],
     };
   }));
 }));
@@ -1025,10 +1067,6 @@ app.post('/api/admin/students/:id/math', guard('teacher'), wrap(async (req, res)
   res.json({ ok: true, message: '수학 점수를 저장했어요' });
 }));
 // 자리: 이 단계에서는 "몇 줄-몇 번" 표시와 "돈 냄(월세 면제)"만 직접 지정해요
-app.post('/api/admin/students/:id/seat', guard('teacher'), wrap(async (req, res) => {
-  await db.collection('students').doc(req.params.id).update({ seat: String(req.body.seat || '').trim(), seatPaid: !!req.body.paid });
-  res.json({ ok: true, message: '자리를 저장했어요' });
-}));
 // 직업 배정 (정원 확인)
 app.post('/api/admin/students/:id/job', guard('teacher'), wrap(async (req, res) => {
   const jobs = await getJobs();
@@ -1102,6 +1140,19 @@ app.post('/api/admin/credit', guard('teacher'), wrap(async (req, res) => {
 // ----------------------------------------------------------------------
 //  국고
 // ----------------------------------------------------------------------
+// 이번 세금 주기에 아직 안 낸 학생 (월세는 자리를 산 학생 제외)
+async function unpaidTaxes(S) {
+  const cycle = cycleOf(new Date(), startDayOf(S));
+  const [items, sales, studs] = await Promise.all([db.collection('shopItems').get(), db.collection('sales').where('cycle', '==', cycle).get(), db.collection('students').get()]);
+  const paid = {};
+  sales.docs.forEach((d) => { const x = d.data(); (paid[x.itemId] = paid[x.itemId] || new Set()).add(x.studentId); });
+  const all = studs.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return items.docs.map((d) => ({ id: d.id, ...d.data() })).filter((it) => it.category === '세금' && it.active !== false).sort((a, b) => (a.order || 0) - (b.order || 0)).map((it) => {
+    const target = all.filter((x) => !(isRentItem(it) && x.seat && x.seatPaid));
+    const pset = paid[it.id] || new Set();
+    return { name: it.name, paid: target.filter((x) => pset.has(x.id)).length, total: target.length, exempt: all.length - target.length, unpaid: target.filter((x) => !pset.has(x.id)).map((x) => x.name) };
+  });
+}
 app.get('/api/admin/treasury', guard('국고관리'), wrap(async (req, res) => {
   const [S, tSnap, sSnap] = await Promise.all([getSettings(), db.collection('treasury').get(), db.collection('students').get()]);
   const names = {};
@@ -1121,7 +1172,8 @@ app.get('/api/admin/treasury', guard('국고관리'), wrap(async (req, res) => {
     monthly: Object.keys(monthly).sort().slice(-6).map((m) => ({ month: m, in: monthly[m].in, out: monthly[m].out })),
     recent: rows.sort((a, b) => b.at.toMillis() - a.at.toMillis()).slice(0, 30)
       .map((r) => ({ at: timeStr(r.at.toDate()), kind: r.kind, amount: r.amount, reason: r.reason, student: r.studentId ? names[r.studentId] || r.studentId : '' })),
-    inKinds: TREASURY_IN, outKinds: TREASURY_OUT,
+    inKinds: TREASURY_IN, outKinds: TREASURY_OUT, unpaid: await unpaidTaxes(S),
+    students: sSnap.docs.map((d) => ({ id: d.id, name: d.data().name })).sort((a, b) => Number(a.id) - Number(b.id)),
   });
 }));
 app.post('/api/admin/treasury/adjust', guard('teacher'), wrap(async (req, res) => {
@@ -1357,7 +1409,7 @@ app.post('/api/admin/board/comment/:id/delete', guard('teacher'), wrap(async (re
 
 // ======================================================================
 //  기존 앱(구글 시트) 데이터 가져오기 — tools/내보내기.gs 가 만든 JSON을 올립니다
-//   · 거래원장은 가져오지 않아요. 학생 잔액·국고는 '이월' 한 줄로 시작합니다.
+//   · 거래원장·보드는 가져오지 않아요. 학생 잔액·국고는 '이월' 한 줄로 시작합니다.
 //   · 같은 파일을 두 번 올려도 돈이 두 번 들어가지 않아요 (번호가 정해져 있어요)
 // ======================================================================
 app.post('/api/admin/import', guard('teacher'), wrap(async (req, res) => {
@@ -1400,9 +1452,12 @@ app.post('/api/admin/import', guard('teacher'), wrap(async (req, res) => {
     rows.forEach((r, i) => put(coll, idOf(r), make(r, i), false));
     return rows.length;
   };
+  const oldJobs = await getJobs();
   report.직업 = await replaceAll('jobs', arr(D.직업), (j, i) => ({
     name: j.이름, salary: num(j.월급), minCredit: num(j.최소신용) || 5, minMath: num(j.최소수학) || 5, desc: j.설명 || '',
     perms: j.권한 ? String(j.권한).split(',').map((x) => x.trim()).filter(Boolean) : [], capacity: num(j.정원), source: j.재원 === '국고' ? '국고' : '민간', order: i,
+    daily: Array.isArray((oldJobs[j.id] || {}).daily) ? oldJobs[j.id].daily : (SEED_TASKS[j.이름] || [[], []])[0], periodic: Array.isArray((oldJobs[j.id] || {}).periodic) ? oldJobs[j.id].periodic : (SEED_TASKS[j.이름] || [[], []])[1],
+    reportable: (oldJobs[j.id] || {}).reportable !== undefined ? !!oldJobs[j.id].reportable : j.이름 === '아르바이트생',
   }), (j) => String(j.id));
   const today = dayStr(now), cycle = cycleOf(now, startDayOf({ ...S, ...patch }));
   report.상점 = await replaceAll('shopItems', arr(D.상점), (x, i) => ({
@@ -1410,7 +1465,8 @@ app.post('/api/admin/import', guard('teacher'), wrap(async (req, res) => {
     stock: x.남은재고 === null || x.남은재고 === undefined ? null : num(x.남은재고), limit: x.한도 === null || x.한도 === undefined ? null : num(x.한도),
     baseline: 0, sold: 0, order: i,
   }), (x) => String(x.id));
-  report.이자율 = await replaceAll('rates', arr(D.이자율).filter((r) => num(r.일수) > 0), (r) => ({ days: num(r.일수), name: r.이름, rates: arr(r.이율).map(num) }), (r) => String(num(r.일수)));
+  const rateRows = arr(D.이자율).map((r) => ({ ...r, 일수: daysFromName(r.이름, num(r.일수)) })).filter((r) => r.일수 > 0);
+  report.이자율 = await replaceAll('rates', rateRows, (r) => ({ days: r.일수, name: r.이름, rates: arr(r.이율).map(num) }), (r) => String(r.일수));
   clearCaches();
 
   // 이번 세금 주기에 낸 학생 · 오늘 산 개수 (다시 내거나 한도를 넘기지 않도록)
@@ -1424,7 +1480,12 @@ app.post('/api/admin/import', guard('teacher'), wrap(async (req, res) => {
   // 학생 (새 학생은 비밀번호 1111, 이미 있는 학생은 비밀번호·잔액을 건드리지 않아요)
   const existing = new Map((await db.collection('students').get()).docs.map((d) => [d.id, d.data()]));
   const seatOf = {};
-  arr(D.자리).forEach((s) => { if (sid(s.학생ID)) seatOf[sid(s.학생ID)] = { seat: `${s.줄}-${s.칸}`, paid: !!s.납부 }; });
+  arr(D.자리).forEach((s) => {
+    const stu = sid(s.학생ID) || '';
+    if (stu) seatOf[stu] = { seat: `${s.줄}-${s.칸}`, paid: !!s.납부 };
+    if (num(s.줄) > 0 && num(s.칸) > 0) put('seats', `P${num(s.줄)}-${num(s.칸)}`, { row: num(s.줄), col: num(s.칸), price: num(s.가격), forSale: s.판매중 !== false, studentId: stu, paid: !!s.납부 && !!stu }, false);
+  });
+  report.자리 = arr(D.자리).length;
   let moved = 0, sumBal = 0;
   D.학생.forEach((s) => {
     const id = sid(s.id), bal = Math.round(num((D.잔액 || {})[String(s.id)]));
@@ -1452,13 +1513,6 @@ app.post('/api/admin/import', guard('teacher'), wrap(async (req, res) => {
   arr(D.공동참여).forEach((j, i) => { if (sid(j.학생ID)) put('groupJoins', `IMP-${j.id || i}`, { goalId: `IMP-${j.목표ID}`, studentId: sid(j.학생ID), amount: num(j.금액), at: iso(j.시각), cancelled: false }, false); });
   report.공동구매 = arr(D.공동구매).length;
 
-  // 보드 (사진은 옮기지 않아요)
-  const au = (old) => (String(old) === TEACHER_AUTHOR ? TEACHER_AUTHOR : sid(old) || String(old));
-  arr(D.보드).forEach((b) => put('boards', `IMP-${b.id}`, { name: b.이름, desc: b.설명 || '', comments: b.댓글 !== false, likes: b.추천 !== false, active: b.활성 !== false, createdMs: b.생성 ? new Date(b.생성).getTime() : Date.now() }, false));
-  arr(D.보드글).forEach((p) => put('boardPosts', `IMP-${p.id}`, { boardId: `IMP-${p.보드ID}`, authorId: au(p.학생ID), at: iso(p.시각), text: (p.내용 || '') + (num(p.사진수) ? `\n(사진 ${num(p.사진수)}장은 새 서버로 옮겨지지 않았어요)` : ''), link: p.링크 || '', photoIds: [], deleted: false }, false));
-  arr(D.보드댓글).forEach((c, i) => put('boardComments', `IMP-${c.id || i}`, { postId: `IMP-${c.글ID}`, boardId: `IMP-${(arr(D.보드글).find((p) => p.id === c.글ID) || {}).보드ID}`, studentId: au(c.학생ID), at: iso(c.시각), text: c.내용 || '', deleted: false }, false));
-  arr(D.보드추천).forEach((l) => { const p = arr(D.보드글).find((x) => x.id === l.글ID); if (p) put('boardLikes', `IMP-${l.글ID}_${au(l.학생ID)}`, { postId: `IMP-${l.글ID}`, boardId: `IMP-${p.보드ID}`, studentId: au(l.학생ID), at }, false); });
-  report.보드글 = arr(D.보드글).length;
 
   const mapping = D.학생.map((s) => ({ old: String(s.id), id: sid(s.id), name: s.이름 }));
   if (!run) return res.json({ ok: true, preview: true, report, mapping, writes: ops.length });
@@ -1469,6 +1523,443 @@ app.post('/api/admin/import', guard('teacher'), wrap(async (req, res) => {
     await b.commit();
   }
   res.json({ ok: true, preview: false, report, mapping, message: '가져오기를 마쳤어요' });
+}));
+
+// ======================================================================
+//  직업 활동 · 승인 · 자리 · 제출 · 신용 기준 · 직업 편집 · 은행 상품
+// ======================================================================
+const TASK_KINDS = ['벌금', '국고지출', '자리징수', '알바수당'];
+const studentGuard = (...perms) => [...guard(...perms), studentOnly];
+const okMsg = (res, message, extra) => res.json({ ok: true, message, ...(extra || {}) });
+
+// ---------- 승인 ----------
+async function approvalRows(status) {
+  const [snap, names] = await Promise.all([db.collection('approvals').where('status', '==', status).get(), studentNames()]);
+  const nm = (id) => (id === TEACHER_AUTHOR || id === '관리자' ? '선생님' : names[id] || id || '');
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => b.at.toMillis() - a.at.toMillis()).map((x) => ({
+    id: x.id, type: x.type, requester: nm(x.requesterId), student: nm(x.studentId), amount: x.amount, reason: x.reason || '', kind: x.kind || '',
+    at: timeStr(x.at.toDate()), status: x.status, batch: x.batch || '', handledAt: x.handledAt ? timeStr(x.handledAt.toDate()) : '', seatId: x.seatId || '',
+  }));
+}
+app.get('/api/admin/approvals', guard('teacher'), wrap(async (req, res) => {
+  const pending = await approvalRows('대기');
+  const done = (await Promise.all(['승인', '거절'].map((s) => approvalRows(s)))).flat().slice(0, 30);
+  res.json({ pending, done });
+}));
+async function resolveApproval(id, approve, by, override) {
+  const ref = db.collection('approvals').doc(String(id));
+  const S = await getSettings();
+  return db.runTransaction(async (t) => {
+    const a = await t.get(ref);
+    if (!a.exists) throw new UserError('신청을 찾을 수 없어요');
+    const x = a.data();
+    if (x.status !== '대기') throw new UserError('이미 처리된 신청이에요');
+    const at = Timestamp.now();
+    if (!approve) { t.update(ref, { status: '거절', handledAt: at, by }); return '거절했어요'; }
+    const students = await loadStudents(t, x.studentId ? [x.studentId] : []);
+    let seat = null, seatRef = null;
+    if (x.type === '자리징수') { seatRef = db.collection('seats').doc(x.seatId); seat = await t.get(seatRef); }
+    let amount = x.amount;
+    if (x.type === '알바수당' && override !== undefined && override !== null && override !== '') {
+      amount = toInt(override, '금액을 확인해 주세요');
+      if (amount <= 0) throw new UserError('금액은 0보다 커야 해요');
+    }
+    if (x.type === '벌금') {
+      stageEntry(t, students, { txId: `FN-${id}`, studentId: x.studentId, kind: '벌금', amount: -amount, reason: x.reason, by: x.requesterId, allowNegative: S.빚허용 === 'Y', failMsg: '학생의 행복이 모자라요' }, at);
+      stageTreasury(t, `FN-${id}:T`, { kind: '벌금', amount, reason: x.reason, studentId: x.studentId, by: x.requesterId }, at);
+    } else if (x.type === '국고지출') {
+      const kind = TREASURY_OUT.includes(x.kind) ? x.kind : '기타지출';
+      if (x.studentId) stageEntry(t, students, { txId: `GV-${id}`, studentId: x.studentId, kind, amount, reason: x.reason, by: '관리자' }, at);
+      stageTreasury(t, `GV-${id}:T`, { kind, amount: -amount, reason: x.reason, studentId: x.studentId || '', by: x.requesterId }, at);
+    } else if (x.type === '자리징수') {
+      if (!seat.exists) throw new UserError('그 자리가 사라졌어요');
+      const sd = seat.data();
+      if (sd.studentId !== x.studentId) throw new UserError('자리에 앉은 친구가 바뀌었어요');
+      if (sd.paid) throw new UserError('이미 다 낸 자리예요');
+      const price = sd.price || 0;
+      stageEntry(t, students, { txId: `ST-${id}`, studentId: x.studentId, kind: '자리구매', amount: -price, reason: x.reason, memo: x.seatId, by: by, failMsg: '학생의 행복이 모자라요. 나중에 다시 승인해 주세요' }, at);
+      stageTreasury(t, `ST-${id}:T`, { kind: '자리판매', amount: price, reason: x.reason, studentId: x.studentId, by }, at);
+      t.update(seatRef, { paid: true, paidAt: at });
+      t.update(students.get(x.studentId).ref, { seatPaid: true });
+      amount = price;
+    } else if (x.type === '알바수당') {
+      stageEntry(t, students, { txId: `AB-${id}`, studentId: x.studentId, kind: '업무수당', amount, reason: x.reason, by: '관리자' }, at);
+    }
+    t.update(ref, { status: '승인', handledAt: at, by, amount });
+    return '승인했어요';
+  });
+}
+app.post('/api/admin/approvals/:id/approve', guard('teacher'), wrap(async (req, res) => okMsg(res, await resolveApproval(req.params.id, true, '관리자', req.body.amount))));
+app.post('/api/admin/approvals/:id/reject', guard('teacher'), wrap(async (req, res) => okMsg(res, await resolveApproval(req.params.id, false, '관리자'))));
+app.post('/api/admin/approvals/approve-many', guard('teacher'), wrap(async (req, res) => {
+  const ids = uniqIds(req.body.ids);
+  let ok = 0; const fails = [];
+  for (const id of ids) { try { await resolveApproval(id, true, '관리자'); ok++; } catch (e) { if (e instanceof UserError) fails.push(e.message); else throw e; } }
+  okMsg(res, `${ok}건 승인했어요${fails.length ? ` (${fails.length}건은 못 했어요: ${[...new Set(fails)].join(', ')})` : ''}`);
+}));
+
+// ---------- 직업 활동 화면에 쓸 내 직업 정보 ----------
+app.get('/api/work/info', auth, wrap(async (req, res) => {
+  const id = targetId(req);
+  const [d, jobs] = await Promise.all([db.collection('students').doc(id).get(), getJobs()]);
+  if (!d.exists) throw new UserError('학생을 찾을 수 없어요');
+  const j = jobs[d.data().jobId];
+  res.json({ name: d.data().name, job: j ? { id: j.id, name: j.name, desc: j.desc || '', perms: j.perms || [], daily: j.daily || [], periodic: j.periodic || [], reportable: !!j.reportable } : null });
+}));
+
+// ---------- 내 신청 내역 ----------
+app.get('/api/work/mine', auth, studentOnly, wrap(async (req, res) => {
+  const type = String(req.query.type || '');
+  if (!TASK_KINDS.includes(type)) throw new UserError('종류를 확인해 주세요');
+  const [snap, names] = await Promise.all([db.collection('approvals').where('requesterId', '==', req.user.id).get(), studentNames()]);
+  res.json(snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.type === type).sort((a, b) => b.at.toMillis() - a.at.toMillis()).slice(0, 20)
+    .map((x) => ({ at: timeStr(x.at.toDate()), student: names[x.studentId] || '', amount: x.amount, reason: x.reason, status: x.status })));
+}));
+
+// ---------- 경찰: 벌금 ----------
+const fineItems = (S) => [{ id: 'late', name: '지각', amount: Number(S.지각벌금) }, { id: 'curse', name: '욕설', amount: null }, { id: 'other', name: '기타', amount: null }];
+app.get('/api/work/fines', studentGuard('벌금'), wrap(async (req, res) => {
+  const S = await getSettings();
+  const names = await studentNames();
+  res.json({ items: fineItems(S), max: Number(S.벌금최대금액), daily: Number(S.일일벌금건수), currency: S.화폐단위, students: Object.keys(names).sort((a, b) => Number(a) - Number(b)).filter((id) => id !== req.user.id).map((id) => ({ id, name: names[id] })) });
+}));
+app.post('/api/work/fines', studentGuard('벌금'), wrap(async (req, res) => {
+  const S = await getSettings();
+  const me = req.user.id, today = dayStr(new Date());
+  const names = await studentNames();
+  const targets = uniqIds(req.body.targets).filter((id) => id !== me && names[id]);
+  if (!targets.length) throw new UserError('벌금을 매길 친구를 골라 주세요 (자기 자신은 안 돼요)');
+  const item = fineItems(S).find((f) => f.id === req.body.itemId);
+  if (!item) throw new UserError('없는 벌금 항목이에요');
+  const amount = item.amount === null ? toInt(req.body.amount, '금액을 올바르게 넣어 주세요') : item.amount;
+  if (amount <= 0) throw new UserError('금액을 올바르게 넣어 주세요');
+  if (amount > Number(S.벌금최대금액)) throw new UserError(`한 사람에게 ${Number(S.벌금최대금액).toLocaleString()}까지만 매길 수 있어요`);
+  const mine = await db.collection('approvals').where('requesterId', '==', me).get();
+  const todays = new Set(mine.docs.filter((d) => d.data().type === '벌금' && d.data().day === today).map((d) => d.data().batch));
+  if (todays.size >= Number(S.일일벌금건수)) throw new UserError(`오늘은 ${Number(S.일일벌금건수)}번까지만 신청할 수 있어요`);
+  const note = String(req.body.note || '').trim().slice(0, 100);
+  const batch = newId('FB'), at = Timestamp.now(), b = db.batch();
+  targets.forEach((id) => b.set(db.collection('approvals').doc(newId('Q')), { type: '벌금', requesterId: me, studentId: id, amount, kind: item.name, reason: item.name + (note ? ' — ' + note : ''), status: '대기', at, day: today, batch }));
+  await b.commit();
+  okMsg(res, `${targets.length}명 벌금을 선생님께 신청했어요. 승인되면 반영돼요`);
+}));
+
+// ---------- 아르바이트 등 자유 업무 보고 ----------
+app.post('/api/work/report', auth, studentOnly, wrap(async (req, res) => {
+  const jobs = await getJobs();
+  const me = await db.collection('students').doc(req.user.id).get();
+  const job = me.exists ? jobs[me.data().jobId] : null;
+  if (!job || !job.reportable) throw new UserError('업무 보고를 할 수 있는 직업이 아니에요');
+  const content = String(req.body.content || '').trim();
+  if (!content) throw new UserError('한 일을 적어 주세요');
+  if (content.length > 200) throw new UserError('한 일은 200자까지 적을 수 있어요');
+  const amount = toInt(req.body.amount, '받고 싶은 행복을 숫자로 적어 주세요');
+  if (amount <= 0 || amount > 100000) throw new UserError('받고 싶은 행복을 올바르게 적어 주세요');
+  const pend = (await db.collection('approvals').where('requesterId', '==', req.user.id).where('status', '==', '대기').get()).docs.filter((d) => d.data().type === '알바수당');
+  if (pend.length >= 10) throw new UserError('아직 확인받지 못한 보고가 10개예요. 선생님이 확인한 뒤에 또 올려 주세요');
+  await db.collection('approvals').doc(newId('Q')).set({ type: '알바수당', requesterId: req.user.id, studentId: req.user.id, amount, kind: '업무수당', reason: content, status: '대기', at: Timestamp.now(), day: dayStr(new Date()) });
+  okMsg(res, '선생님께 보고했어요. 승인되면 행복을 받아요');
+}));
+
+// ---------- 자리 ----------
+function seatLabelOf(s) { return `${s.row}-${s.col}`; }
+async function cancelSeatRequests(seatId) {
+  const snap = await db.collection('approvals').where('seatId', '==', seatId).get();
+  const b = db.batch();
+  snap.docs.forEach((d) => { if (d.data().type === '자리징수' && d.data().status === '대기') b.update(d.ref, { status: '취소', handledAt: Timestamp.now(), by: '시스템' }); });
+  await b.commit();
+}
+async function seatsView() {
+  const [S, seatSnap, studSnap, pendSnap] = await Promise.all([getSettings(), db.collection('seats').get(), db.collection('students').get(), db.collection('approvals').where('status', '==', '대기').get()]);
+  const studs = {};
+  studSnap.docs.forEach((d) => (studs[d.id] = d.data()));
+  const pend = {};
+  pendSnap.docs.forEach((d) => { if (d.data().type === '자리징수') pend[d.data().seatId] = d.id; });
+  const seats = seatSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => a.row - b.row || a.col - b.col).map((s) => {
+    const bal = s.studentId && studs[s.studentId] ? studs[s.studentId].balance || 0 : 0;
+    return { id: s.id, row: s.row, col: s.col, price: s.price || 0, forSale: s.forSale !== false, studentId: s.studentId || '', name: s.studentId && studs[s.studentId] ? studs[s.studentId].name : '', paid: !!s.paid, balance: bal, shortfall: s.studentId ? Math.max(0, (s.price || 0) - bal) : 0, pending: !!pend[s.id] };
+  });
+  const seated = {};
+  seats.forEach((s) => { if (s.studentId) seated[s.studentId] = s.id; });
+  return {
+    currency: S.화폐단위, rent: Number(S.월세), aisle: String(S.통로위치).split(',').map(Number).filter((n) => n > 0), seats,
+    rows: Math.max(0, ...seats.map((s) => s.row)), cols: Math.max(0, ...seats.map((s) => s.col)),
+    students: Object.keys(studs).sort((a, b) => Number(a) - Number(b)).map((id) => ({ id, name: studs[id].name, seat: seated[id] ? seated[id] : '' })),
+  };
+}
+app.get('/api/work/seats', guard('자리관리'), wrap(async (req, res) => res.json(await seatsView())));
+app.post('/api/work/seats/init', guard('자리관리'), wrap(async (req, res) => {
+  const rows = toInt(req.body.rows, '줄 수를 넣어 주세요'), cols = toInt(req.body.cols, '칸 수를 넣어 주세요'), price = Math.max(0, toInt(req.body.price || 0));
+  if (rows < 1 || cols < 1 || rows > 12 || cols > 12) throw new UserError('줄과 칸은 1~12 사이로 넣어 주세요');
+  const existing = new Set((await db.collection('seats').get()).docs.map((d) => d.id));
+  const b = db.batch(); let n = 0;
+  for (let r = 1; r <= rows; r++) for (let c = 1; c <= cols; c++) { const id = `P${r}-${c}`; if (!existing.has(id)) { b.set(db.collection('seats').doc(id), { row: r, col: c, price, forSale: true, studentId: '', paid: false }); n++; } }
+  await b.commit();
+  okMsg(res, `${n}칸을 만들었어요`);
+}));
+app.post('/api/work/seats/add', guard('자리관리'), wrap(async (req, res) => {
+  const r = toInt(req.body.row, '줄을 넣어 주세요'), c = toInt(req.body.col, '칸을 넣어 주세요'), price = Math.max(0, toInt(req.body.price || 0));
+  if (r < 1 || c < 1 || r > 12 || c > 12) throw new UserError('줄과 칸은 1~12 사이로 넣어 주세요');
+  const ref = db.collection('seats').doc(`P${r}-${c}`);
+  if ((await ref.get()).exists) throw new UserError(`${r}줄 ${c}칸은 이미 있어요`);
+  await ref.set({ row: r, col: c, price, forSale: true, studentId: '', paid: false });
+  okMsg(res, `${r}줄 ${c}칸을 만들었어요`);
+}));
+app.post('/api/work/seats/bulk-price', guard('자리관리'), wrap(async (req, res) => {
+  const price = toInt(req.body.price, '가격을 넣어 주세요');
+  if (price < 0) throw new UserError('가격을 올바르게 넣어 주세요');
+  const row = req.body.row === '' || req.body.row == null ? null : toInt(req.body.row);
+  const snap = await db.collection('seats').get();
+  const b = db.batch(); let n = 0, skip = 0;
+  snap.docs.forEach((d) => { const x = d.data(); if (row !== null && x.row !== row) return; if (x.paid) { skip++; return; } b.update(d.ref, { price }); n++; });
+  await b.commit();
+  okMsg(res, `${row ? row + '줄 ' : ''}${n}칸을 ${price.toLocaleString()}으로 맞췄어요${skip ? ` (이미 낸 ${skip}칸은 그대로)` : ''}`);
+}));
+app.post('/api/work/seats/:id/set', guard('자리관리'), wrap(async (req, res) => {
+  const ref = db.collection('seats').doc(req.params.id), d = await ref.get();
+  if (!d.exists) throw new UserError('그런 자리가 없어요');
+  const patch = {};
+  if (req.body.price !== undefined && req.body.price !== '') {
+    const price = toInt(req.body.price, '가격을 올바르게 넣어 주세요');
+    if (price < 0) throw new UserError('가격을 올바르게 넣어 주세요');
+    if (d.data().paid && price !== d.data().price) throw new UserError('이미 돈을 낸 자리는 가격을 바꿀 수 없어요');
+    patch.price = price;
+  }
+  if (req.body.forSale !== undefined) patch.forSale = !!req.body.forSale;
+  await ref.update(patch);
+  okMsg(res, '저장했어요');
+}));
+app.post('/api/work/seats/:id/assign', guard('자리관리'), wrap(async (req, res) => {
+  const ref = db.collection('seats').doc(req.params.id), d = await ref.get();
+  if (!d.exists) throw new UserError('그런 자리가 없어요');
+  const seat = d.data(), sid = String(req.body.studentId || '');
+  if (seat.paid) throw new UserError('이미 돈을 낸 자리예요. 바꾸려면 선생님이 먼저 풀어야 해요');
+  const b = db.batch();
+  if (sid) {
+    const stu = await db.collection('students').doc(sid).get();
+    if (!stu.exists) throw new UserError('학생을 찾을 수 없어요');
+    const others = (await db.collection('seats').where('studentId', '==', sid).get()).docs.filter((o) => o.id !== d.id);
+    if (others.some((o) => o.data().paid)) throw new UserError('이 친구는 이미 돈을 낸 자리가 있어요');
+    for (const o of others) { b.update(o.ref, { studentId: '' }); await cancelSeatRequests(o.id); }
+    if (seat.studentId && seat.studentId !== sid) b.update(db.collection('students').doc(seat.studentId), { seat: '', seatPaid: false });
+    b.update(ref, { studentId: sid });
+    b.update(db.collection('students').doc(sid), { seat: seatLabelOf(seat), seatPaid: false });
+  } else {
+    if (seat.studentId) b.update(db.collection('students').doc(seat.studentId), { seat: '', seatPaid: false });
+    b.update(ref, { studentId: '' });
+  }
+  await cancelSeatRequests(d.id);
+  await b.commit();
+  okMsg(res, sid ? '등록했어요. [징수 신청]을 눌러야 돈이 걷혀요' : '등록을 지웠어요');
+}));
+app.post('/api/work/seats/:id/collect', guard('자리관리'), wrap(async (req, res) => {
+  const d = await db.collection('seats').doc(req.params.id).get();
+  if (!d.exists) throw new UserError('그런 자리가 없어요');
+  const s = d.data();
+  if (!s.studentId) throw new UserError('먼저 이 칸에 앉을 친구를 등록해 주세요');
+  if (s.paid) throw new UserError('이미 다 낸 자리예요');
+  if (!(s.price > 0)) throw new UserError('가격을 먼저 정해 주세요');
+  const stu = await db.collection('students').doc(s.studentId).get();
+  const bal = stu.exists ? stu.data().balance || 0 : 0;
+  if (bal < s.price) throw new UserError(`${stu.data().name}의 행복이 ${(s.price - bal).toLocaleString()} 모자라요 (지금 ${bal.toLocaleString()})`);
+  const pend = (await db.collection('approvals').where('seatId', '==', d.id).get()).docs.some((x) => x.data().type === '자리징수' && x.data().status === '대기');
+  if (pend) throw new UserError('이미 선생님께 신청해 둔 자리예요');
+  const requester = req.user.role === 'teacher' ? '관리자' : req.user.id;
+  await db.collection('approvals').doc(newId('Q')).set({ type: '자리징수', requesterId: requester, studentId: s.studentId, seatId: d.id, amount: s.price, kind: '자리판매', reason: `${stu.data().name} · ${s.row}줄 ${s.col}칸`, status: '대기', at: Timestamp.now(), day: dayStr(new Date()) });
+  okMsg(res, '선생님께 징수를 신청했어요. 승인되면 국고로 들어가요');
+}));
+app.post('/api/work/seats/:id/delete', guard('자리관리'), wrap(async (req, res) => {
+  const ref = db.collection('seats').doc(req.params.id), d = await ref.get();
+  if (!d.exists) throw new UserError('그런 자리가 없어요');
+  if (d.data().paid) throw new UserError('이미 돈을 낸 자리는 지울 수 없어요. 선생님이 먼저 풀어야 해요');
+  if (d.data().studentId) await db.collection('students').doc(d.data().studentId).update({ seat: '', seatPaid: false });
+  await cancelSeatRequests(d.id);
+  await ref.delete();
+  okMsg(res, '자리를 없앴어요');
+}));
+// 이미 낸 자리 풀기 (선생님만, 돈을 돌려줄 수도 있어요)
+app.post('/api/admin/seats/:id/release', guard('teacher'), wrap(async (req, res) => {
+  const refund = req.body.refund === true;
+  const ref = db.collection('seats').doc(req.params.id);
+  await db.runTransaction(async (t) => {
+    const d = await t.get(ref);
+    if (!d.exists) throw new UserError('그런 자리가 없어요');
+    const s = d.data();
+    if (!s.studentId) throw new UserError('비어 있는 자리예요');
+    const students = await loadStudents(t, [s.studentId]);
+    const at = Timestamp.now();
+    if (refund && s.paid && s.price > 0) {
+      const tx = `SR-${d.id}-${Date.now().toString(36)}`;
+      stageEntry(t, students, { txId: tx, studentId: s.studentId, kind: '자리환불', amount: s.price, reason: `${s.row}줄 ${s.col}칸 환불`, by: '관리자' }, at);
+      stageTreasury(t, `${tx}:T`, { kind: '부동산개발', amount: -s.price, reason: '자리 환불', studentId: s.studentId, by: '관리자' }, at);
+    }
+    t.update(ref, { studentId: '', paid: false });
+    t.update(students.get(s.studentId).ref, { seat: '', seatPaid: false });
+  });
+  await cancelSeatRequests(req.params.id);
+  okMsg(res, refund ? '자리를 풀고 돈을 돌려줬어요' : '자리를 풀었어요');
+}));
+
+// ---------- 국세청: 국고 지출 신청 ----------
+app.post('/api/work/treasury/request', studentGuard('국고관리'), wrap(async (req, res) => {
+  const kind = String(req.body.kind || '');
+  if (!TREASURY_OUT.includes(kind)) throw new UserError('없는 항목이에요');
+  const amount = toInt(req.body.amount, '금액을 올바르게 넣어 주세요');
+  if (amount <= 0) throw new UserError('금액을 올바르게 넣어 주세요');
+  const why = String(req.body.reason || '').trim();
+  if (!why) throw new UserError('무엇에 쓸지 적어 주세요');
+  const sid = String(req.body.studentId || '');
+  if (sid && !(await db.collection('students').doc(sid).get()).exists) throw new UserError('학생을 찾을 수 없어요');
+  await db.collection('approvals').doc(newId('Q')).set({ type: '국고지출', requesterId: req.user.id, studentId: sid, amount, kind, reason: `${kind} — ${why}`.slice(0, 160), status: '대기', at: Timestamp.now(), day: dayStr(new Date()) });
+  okMsg(res, '선생님께 신청했어요');
+}));
+
+// ---------- 통계청: 제출 확인 (임시 기록 → 선생님이 저장) ----------
+const SUBMIT_REF = () => db.collection('meta').doc('submission');
+async function submitView() {
+  const [d, names] = await Promise.all([SUBMIT_REF().get(), studentNames()]);
+  const x = d.exists ? d.data() : {};
+  return { item: x.item || '', status: x.status || {}, by: x.by || '', at: x.atMs || 0, students: Object.keys(names).sort((a, b) => Number(a) - Number(b)).map((id) => ({ id, name: names[id] })) };
+}
+app.get('/api/work/submit', guard('제출승인'), wrap(async (req, res) => res.json(await submitView())));
+async function bumpSubmit(req, patchFn) {
+  const by = req.user.role === 'teacher' ? '선생님' : (await studentNames())[req.user.id] || '';
+  await db.runTransaction(async (t) => {
+    const d = await t.get(SUBMIT_REF());
+    const x = d.exists ? d.data() : { item: '', status: {} };
+    patchFn(x);
+    t.set(SUBMIT_REF(), { item: x.item || '', status: x.status || {}, by, atMs: Date.now() });
+  });
+}
+app.post('/api/work/submit/check', guard('제출승인'), wrap(async (req, res) => {
+  const st = String(req.body.status || '');
+  if (!['제출', '미제출', ''].includes(st)) throw new UserError('상태를 확인해 주세요');
+  await bumpSubmit(req, (x) => { x.status = x.status || {}; if (req.body.item !== undefined) x.item = String(req.body.item).slice(0, 60); if (req.body.studentId) { if (st) x.status[req.body.studentId] = st; else delete x.status[req.body.studentId]; } });
+  res.json(await submitView());
+}));
+app.post('/api/work/submit/all', guard('제출승인'), wrap(async (req, res) => {
+  const st = String(req.body.status || '');
+  if (!['제출', '미제출', ''].includes(st)) throw new UserError('상태를 확인해 주세요');
+  const names = await studentNames();
+  await bumpSubmit(req, (x) => { x.status = {}; if (st) Object.keys(names).forEach((id) => (x.status[id] = st)); });
+  res.json(await submitView());
+}));
+// 기록으로 저장 → 신용점수 반영 (선생님만)
+app.post('/api/admin/submit/save', guard('teacher'), wrap(async (req, res) => {
+  const S = await getSettings();
+  const v = await submitView();
+  const item = String(req.body.item !== undefined ? req.body.item : v.item).trim();
+  if (!item) throw new UserError('항목 이름을 적어 주세요 (예: 수학 숙제)');
+  const ids = Object.keys(v.status).filter((id) => ['제출', '미제출'].includes(v.status[id]));
+  if (!ids.length) throw new UserError('체크한 학생이 없어요');
+  const at = Timestamp.now(), b = db.batch();
+  ids.forEach((id) => b.set(db.collection('credits').doc(), { studentId: id, item, status: v.status[id], points: v.status[id] === '제출' ? Number(S.제출점수) : Number(S.미제출점수), by: '관리자', at }));
+  b.delete(SUBMIT_REF());
+  await b.commit();
+  okMsg(res, `${ids.length}명의 "${item}" 기록을 저장했어요`);
+}));
+
+// ---------- 신용등급 평가원: 현황 · 등급 기준 ----------
+async function creditBoard() {
+  const [S, studs, cr] = await Promise.all([getSettings(), db.collection('students').get(), db.collection('credits').get()]);
+  const by = {};
+  cr.docs.forEach((d) => { const x = d.data(); (by[x.studentId] = by[x.studentId] || []).push(x); });
+  const list = studs.docs.map((d) => { const sm = creditSummary(by[d.id] || [], S); return { id: d.id, name: d.data().name, total: sm.total, grade: sm.grade, submitted: sm.submitted, missed: sm.missed }; }).sort((a, b) => b.total - a.total);
+  return { S, list };
+}
+function parseCuts(v) {
+  const c = String(v).split(',').map((x) => x.trim()).filter((x) => x !== '').map(Number);
+  if (c.length !== 4 || c.some((n) => !Number.isFinite(n))) throw new UserError('숫자 4개를 쉼표로 넣어 주세요 (예: 24,18,12,6)');
+  for (let i = 1; i < c.length; i++) if (c[i] >= c[i - 1]) throw new UserError('앞에서 뒤로 갈수록 작아져야 해요');
+  return c;
+}
+app.get('/api/work/credit', guard('신용관리'), wrap(async (req, res) => {
+  const { S, list } = await creditBoard();
+  const dist = [0, 0, 0, 0, 0];
+  list.forEach((x) => dist[x.grade - 1]++);
+  res.json({ list, cuts: String(S.신용등급컷), dist });
+}));
+app.post('/api/work/credit/preview', guard('신용관리'), wrap(async (req, res) => {
+  const cuts = parseCuts(req.body.cuts);
+  const { list } = await creditBoard();
+  const dist = [0, 0, 0, 0, 0], changes = [];
+  list.forEach((x) => { const g = gradeOf(x.total, cuts.join(',')); dist[g - 1]++; if (g !== x.grade) changes.push({ name: x.name, from: x.grade, to: g }); });
+  res.json({ dist, changes });
+}));
+app.post('/api/work/credit/save', guard('신용관리'), wrap(async (req, res) => {
+  const cuts = parseCuts(req.body.cuts);
+  const { list } = await creditBoard();
+  const n = list.filter((x) => gradeOf(x.total, cuts.join(',')) !== x.grade).length;
+  await db.collection('meta').doc('settings').set({ 신용등급컷: cuts.join(',') }, { merge: true });
+  clearCaches();
+  okMsg(res, `등급 기준을 바꿨어요. ${n}명의 등급이 달라졌어요`);
+}));
+
+// ---------- 직업 편집 (선생님) ----------
+app.get('/api/admin/jobs', guard('teacher'), wrap(async (req, res) => {
+  const [jobs, studs] = await Promise.all([getJobs(), db.collection('students').get()]);
+  const count = {};
+  studs.docs.forEach((d) => { const j = d.data().jobId; if (j) count[j] = (count[j] || 0) + 1; });
+  res.json({ perms: JOB_PERMS, jobs: Object.values(jobs).sort((a, b) => (a.order || 0) - (b.order || 0)).map((j) => ({ id: j.id, name: j.name, salary: j.salary, minCredit: j.minCredit, minMath: j.minMath, desc: j.desc || '', perms: j.perms || [], capacity: j.capacity, source: j.source, daily: j.daily || [], periodic: j.periodic || [], reportable: !!j.reportable, count: count[j.id] || 0 })) });
+}));
+app.post('/api/admin/jobs/save', guard('teacher'), wrap(async (req, res) => {
+  const b = req.body, name = String(b.name || '').trim();
+  if (!name) throw new UserError('직업 이름을 적어 주세요');
+  const lines = (v) => (Array.isArray(v) ? v : String(v || '').split('\n')).map((x) => String(x).trim()).filter(Boolean).slice(0, 12);
+  const num = (v, min, max, msg) => { const n = Math.round(Number(v)); if (!Number.isFinite(n) || n < min || n > max) throw new UserError(msg); return n; };
+  const data = {
+    name, salary: num(b.salary, 0, 100000, '월급을 확인해 주세요'), minCredit: num(b.minCredit, 1, 5, '신용등급은 1~5'), minMath: num(b.minMath, 1, 5, '수학등급은 1~5'),
+    desc: String(b.desc || '').trim(), perms: (Array.isArray(b.perms) ? b.perms : []).filter((p) => JOB_PERMS.includes(p)), capacity: num(b.capacity || 0, 0, 30, '정원은 0~30'),
+    source: b.source === '국고' ? '국고' : '민간', daily: lines(b.daily), periodic: lines(b.periodic), reportable: !!b.reportable,
+  };
+  const jobs = await getJobs();
+  const id = b.id ? String(b.id) : newId('J');
+  if (b.id && !jobs[id]) throw new UserError('그런 직업이 없어요');
+  if (!b.id) data.order = Object.keys(jobs).length + 100;
+  await db.collection('jobs').doc(id).set(data, { merge: true });
+  clearCaches();
+  okMsg(res, b.id ? '직업을 고쳤어요' : `"${name}" 직업을 만들었어요`);
+}));
+app.post('/api/admin/jobs/:id/delete', guard('teacher'), wrap(async (req, res) => {
+  const jobs = await getJobs();
+  if (!jobs[req.params.id]) throw new UserError('그런 직업이 없어요');
+  const snap = await db.collection('students').where('jobId', '==', req.params.id).get();
+  const b = db.batch();
+  snap.docs.forEach((d) => b.update(d.ref, { jobId: '' }));
+  b.delete(db.collection('jobs').doc(req.params.id));
+  await b.commit();
+  clearCaches();
+  okMsg(res, `"${jobs[req.params.id].name}" 직업을 지웠어요${snap.size ? ` (${snap.size}명은 직업이 비었어요)` : ''}`);
+}));
+
+// ---------- 은행 상품 추가 · 삭제 ----------
+app.post('/api/admin/bank/product', guard('은행관리'), wrap(async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  if (!name) throw new UserError('상품 이름을 적어 주세요 (예: 1주, 2주, 1달)');
+  const days = daysFromName(name, Number(req.body.days));
+  if (!Number.isFinite(days) || days < 1 || days > 365) throw new UserError('기간(일)을 확인해 주세요');
+  const nums = (req.body.rates || []).map(Number);
+  if (nums.length !== 5 || nums.some((n) => !Number.isFinite(n) || n < 0 || n > 50)) throw new UserError('이자율은 0~50 사이 숫자 5개예요');
+  await db.collection('rates').doc(String(days)).set({ days, name, rates: nums });
+  okMsg(res, `${name}(${days}일) 상품을 저장했어요`);
+}));
+app.post('/api/admin/bank/product/:days/delete', guard('은행관리'), wrap(async (req, res) => {
+  const ref = db.collection('rates').doc(String(req.params.days));
+  if (!(await ref.get()).exists) throw new UserError('그런 상품이 없어요');
+  await ref.delete();
+  okMsg(res, '상품을 없앴어요 (이미 맡긴 예금은 그대로예요)');
+}));
+
+// ---------- 보드 전체 비우기 ----------
+app.post('/api/admin/boards/wipe-all', guard('teacher'), wrap(async (req, res) => {
+  if (req.body.confirm !== '삭제') throw new UserError('확인 문구를 입력해 주세요');
+  let n = 0;
+  for (const c of ['boardPosts', 'boardComments', 'boardLikes', 'boardPhotos', 'boards']) {
+    const snap = await db.collection(c).get();
+    for (let i = 0; i < snap.docs.length; i += 400) { const b = db.batch(); snap.docs.slice(i, i + 400).forEach((d) => b.delete(d.ref)); await b.commit(); }
+    n += snap.size;
+  }
+  okMsg(res, `보드를 모두 지웠어요 (${n}개)`);
 }));
 
 // ----------------------------------------------------------------------

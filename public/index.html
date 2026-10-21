@@ -137,6 +137,36 @@ button.stat { cursor: pointer; }
 .thumbs button { position: absolute; top: -6px; right: -6px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; cursor: pointer; font-size: 14px; line-height: 1; }
 .bcard { text-align: left; border: 0; cursor: pointer; font-family: inherit; color: inherit; }
 
+/* ---------- 교사 모드 덮기 · 직업 활동 · 자리 ---------- */
+.leaf.tmon > .stud { display: none; }
+.tool { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 22px; }
+.tasks { margin: 6px 0 0; padding-left: 20px; line-height: 1.9; font-size: 15px; }
+.chipbtn.bad { background: #FFF0F1; border-color: var(--red); color: var(--red); font-weight: 700; }
+.bank-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.bank-ds { min-height: 4.8em; line-height: 1.6; }
+.blackboard { background: #3C5A4A; color: #fff; text-align: center; border-radius: 10px; padding: 6px; font-size: 13px; margin-bottom: 10px; letter-spacing: 6px; }
+.sgrid { overflow-x: auto; padding-bottom: 4px; }
+.srow { display: flex; gap: 8px; margin-bottom: 8px; }
+.aisle { flex: 0 0 18px; }
+.seat { flex: 1 1 0; min-width: 78px; border: 1.5px solid var(--line); background: #F9FAFB; border-radius: 12px; padding: 8px 6px; font-family: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 2px; align-items: center; color: var(--ink); }
+.seat.none { border: 0; background: transparent; cursor: default; }
+.seat small { color: var(--sub); font-size: 11px; }
+.seat b { font-size: 14px; }
+.seat i { font-style: normal; font-size: 11px; color: var(--sub); }
+.seat.taken { background: var(--blue-s); border-color: var(--blue); }
+.seat.paid { background: #E6F7F0; border-color: #4CC9A0; }
+.seat.pend { outline: 2px dashed #F5B400; }
+/* ---------- 우리반 보드 (padlet) ---------- */
+.bhead { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.plus { width: 56px; height: 56px; border-radius: 50%; border: 0; background: var(--blue); color: #fff; font-size: 34px; line-height: 1; cursor: pointer; box-shadow: 0 6px 16px rgba(49,130,246,.35); flex: 0 0 auto; }
+.plus:hover { background: var(--blue-d); }
+.pad { columns: 3 230px; column-gap: 14px; }
+.pad .post { break-inside: avoid; display: inline-block; width: 100%; padding: 0; overflow: hidden; background: #fff; border: 1.5px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,.04); }
+.pad .pbody { padding: 14px 16px 16px; }
+.pbig { width: 100%; display: block; cursor: zoom-in; background: var(--line); }
+.pad .pgrid { padding: 8px 8px 0; margin-bottom: 0; grid-template-columns: repeat(3, 1fr); }
+.pad .pgrid img { aspect-ratio: 1; }
+
 /* ---------- 교사 모드 ---------- */
 .tpanel { margin-top: 30px; border: 2px dashed #B0B8C1; border-radius: 22px; padding: 24px; background: #fff; }
 .tpanel .lbl { display: inline-block; font-size: 12px; font-weight: 700; color: #fff; background: var(--ink); border-radius: 6px; padding: 3px 8px; margin-bottom: 12px; }
@@ -262,8 +292,8 @@ const TABS = [
 const st = {
   token: null, role: null, perms: [], myId: '', myName: '', asId: '',
   tab: 'info', info: null, history: null, shop: null, shopTab: '세금', groups: null, bank: null, jobs: null,
-  board: null, boardId: '', posts: null, tm: { info: false, shop: false, bank: false, jobs: false, board: false }, sub: { info: 'students', shop: 'items' },
-  adm: { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null },
+  board: null, boardId: '', posts: null, tm: { info: false, shop: false, bank: false, jobs: false, board: false }, sub: { info: 'approvals', shop: 'items', etc: 'jobs' }, w: {},
+  adm: { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null, approvals: null, jobs: null },
   sel: new Set(), forms: {},
 };
 const isTeacher = () => st.role === 'teacher';
@@ -344,7 +374,7 @@ $('#lform').onsubmit = async (e) => {
 };
 function logout() {
   st.token = null; saveToken(); st.role = null; st.info = null; st.shop = null; st.groups = null; st.history = null; st.bank = null; st.jobs = null;
-  st.adm = { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null };
+  st.adm = { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null, approvals: null, jobs: null }; st.w = {};
   st.tm = { info: false, shop: false, bank: false, jobs: false, board: false }; st.tab = 'info'; st.board = null; st.boardId = ''; st.posts = null;
   closeModal(); $('#app').hidden = true; $('#login').hidden = false; $('#lpin').value = '';
 }
@@ -358,6 +388,7 @@ async function enter() {
     st.adm.students = a;
     st.asId = (a.students[0] || {}).id || '';
     if (!a.students.length) { st.tm.info = true; st.sub.info = 'register'; }
+    else loadApprovals(false).then(() => renderInfo());
   }
   $('#login').hidden = true; $('#app').hidden = false;
   buildFrame();
@@ -374,8 +405,8 @@ function fillAsSel() {
   sel.innerHTML = ss.length ? ss.map((s) => `<option value="${esc(s.id)}"${s.id === st.asId ? ' selected' : ''}>${esc(s.id)}번 ${esc(s.name)}</option>`).join('') : '<option value="">학생 없음</option>';
 }
 $('#asSel').onchange = (e) => {
-  st.asId = e.target.value; st.info = null; st.history = null; st.shop = null; st.groups = null; st.bank = null; st.jobs = null;
-  renderAll(); loadInfo(); if (st.tab === 'shop') loadShop(); if (st.tab === 'bank') loadBank(); if (st.tab === 'jobs') loadJobs();
+  st.asId = e.target.value; st.info = null; st.history = null; st.shop = null; st.groups = null; st.bank = null; st.jobs = null; st.w = {};
+  renderAll(); loadInfo(); if (st.tab === 'shop') loadShop(); if (st.tab === 'bank') loadBank(); if (st.tab === 'jobs') loadJobs(); if (st.tab === 'work') loadWork();
 };
 
 /* ====================================================================
@@ -405,15 +436,16 @@ function goTab(id, first) {
     if (id === 'bank' && !st.bank) loadBank();
     if (id === 'jobs' && !st.jobs) loadJobs();
     if (id === 'board' && !st.board) loadBoards();
+    if (id === 'work' && !st.w.info) loadWork();
     if (window.innerWidth <= 760) window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 }
-function renderAll() { renderInfo(); renderBank(); renderShop(); renderJobs(); renderBoard(); renderPlaceholders(); }
+function renderAll() { renderInfo(); renderBank(); renderShop(); renderJobs(); renderBoard(); renderWork(); }
 
 function leafHead(eyebrow, titleHtml, tmKey, tmAllowed) {
   const on = st.tm[tmKey];
   return `<div class="head"><div><p class="eyebrow">${eyebrow}</p><h1>${titleHtml}</h1></div>` +
-    (tmAllowed ? `<button type="button" class="tm ${on ? 'on' : ''}" data-act="tm" data-id="${tmKey}" aria-pressed="${on}">교사 모드 ${on ? '켜짐' : '꺼짐'}</button>` : '') + '</div>';
+    (tmAllowed ? `<button type="button" class="tm ${on ? 'on' : ''}" data-act="tm" data-id="${tmKey}" aria-pressed="${on}">${on ? '교사 모드 닫기' : '교사 모드'}${tmKey === 'info' && isTeacher() && pendingCount() ? ` <span class="badge warn">승인 ${pendingCount()}</span>` : ''}</button>` : '') + '</div>';
 }
 
 /* ====================================================================
@@ -458,7 +490,7 @@ function renderInfo() {
       ((st.history || []).length > 8 ? `<button type="button" class="btn sec small" data-act="allHistory">전체 보기</button>` : '') + `</div>`;
   }
   if (st.tm.info && isTeacher()) body += infoTeacherPanel();
-  el.innerHTML = body;
+  el.innerHTML = body; applyTm(el, 'info');
 }
 function historyHtml(list) {
   if (!list.length) return '<p class="note">아직 거래가 없어요.</p>';
@@ -521,7 +553,7 @@ function renderBank() {
     <div class="stat" style="background:#F9FAFB"><small>내 신용</small><b>${b.grade}등급</b><i>이자율 기준</i></div>
     <div class="stat" style="background:#F9FAFB"><small>맡긴 ${esc(c)}</small><b>${fmt(live.reduce((a, d) => a + d.principal, 0))}</b><i>${live.length}건</i></div>
     <div class="stat" style="background:#F9FAFB"><small>최소 금액</small><b>${fmt(b.min)}</b><i>한 번에</i></div></div>
-    <div class="grid">` + b.products.map((p) => `<div class="card"><div class="nm">${esc(p.name)} 예금</div><div class="ds">맡긴 날부터 ${p.days}일 뒤에 원금과 이자를 받아요</div>
+    <div class="grid bank-grid">` + b.products.map((p) => `<div class="card"><div class="nm">${esc(p.name)} 예금</div><div class="ds bank-ds">맡긴 날부터 ${esc(p.name)}(${p.days}일) 뒤에<br>원금과 이자를 한꺼번에 받아요.<br>중간에 해지하면 이자 없이 원금만 받아요.</div>
       <div class="pr" style="color:var(--blue-d)">내 이자율 ${p.rate}%</div><div class="st">등급별 ${p.all.map((v, i) => `${i + 1}등급 ${v}%`).join(' · ')}</div>
       <button type="button" class="btn small ${cant ? '' : 'sec'}" ${cant ? 'disabled' : ''} data-act="depOpen" data-days="${p.days}">${b.debt ? '빚을 먼저 갚아요' : b.balance < b.min ? `최소 ${fmt(b.min)} 필요` : '맡기기'}</button></div>`).join('') + `</div>
     <h2 style="margin-top:28px">내 예금</h2>` +
@@ -534,7 +566,7 @@ function renderBank() {
       }).join('') : '<p class="note">아직 맡긴 행복이 없어요.</p>');
   }
   if (st.tm.bank && can('은행관리')) body += bankTeacherPanel();
-  el.innerHTML = body;
+  el.innerHTML = body; applyTm(el, 'bank');
 }
 function depOpen(days) {
   if (isTeacher()) return toast('미리보기 중에는 맡길 수 없어요');
@@ -561,7 +593,7 @@ function bankTeacherPanel() {
     `<h2 style="margin-top:24px">예치 중</h2><p class="note">만기 전에 해지하면 이자 없이 원금만 돌려줘요.</p>` +
     (a.holding.length ? a.holding.map((x) => dep(x, `<span class="badge">${x.left}일 남음</span><button class="btn tiny red" data-act="depCancel" data-id="${esc(x.id)}" data-admin="1">해지</button>`)).join('') : '<p class="note">예치 중인 예금이 없어요.</p>') +
     `<h2 style="margin-top:24px">이자율 정하기</h2><p class="note">왼쪽부터 1등급 → 5등급 (%)</p>` +
-    a.rates.map((r) => `<div class="mrow"><div class="t"><b>${esc(r.name)}</b></div><div class="acts" style="align-items:center">` + r.rates.map((v, i) => `<input class="mini" style="width:58px" type="number" id="rate_${r.days}_${i}" value="${v}">`).join('') + `<button class="btn tiny gray" data-act="rateSave" data-days="${r.days}">저장</button></div></div>`).join('') +
+    a.rates.map((r) => `<div class="mrow"><div class="t"><b>${esc(r.name)}</b> <small>${r.days}일</small></div><div class="acts" style="align-items:center">` + r.rates.map((v, i) => `<input class="mini" style="width:58px" type="number" id="rate_${r.days}_${i}" value="${v}">`).join('') + `<button class="btn tiny gray" data-act="rateSave" data-days="${r.days}">저장</button><button class="btn tiny gray" data-act="prodEdit" data-days="${r.days}">이름 고치기</button><button class="btn tiny red" data-act="prodDel" data-days="${r.days}">없애기</button></div></div>`).join('') + `<div style="margin-top:10px"><button type="button" class="btn small sec" data-act="prodEdit" data-days="">+ 예금 상품 추가</button></div>` +
     (a.past.length ? `<h2 style="margin-top:24px">최근 끝난 예금</h2>` + a.past.map((x) => dep(x, `<span class="badge gray">${esc(x.status)}</span>`)).join('') : '') + `</section>`;
 }
 
@@ -590,7 +622,7 @@ function renderJobs() {
     }).join('') + `</div>`;
   }
   if (st.tm.jobs && isTeacher()) body += jobsTeacherPanel();
-  el.innerHTML = body;
+  el.innerHTML = body; applyTm(el, 'jobs');
 }
 async function loadAssign() { try { st.adm.assign = await api('/api/admin/assign'); } catch (e) { toast(e.message, true); } renderJobs(); }
 function jobsTeacherPanel() {
@@ -650,7 +682,7 @@ function renderShop() {
     else body += itemsHtml(s);
   }
   if (st.tm.shop && shopTeacherAllowed()) body += shopTeacherPanel();
-  el.innerHTML = body;
+  el.innerHTML = body; applyTm(el, 'shop');
 }
 function itemsHtml(s) {
   const list = s.items.filter((i) => i.category === st.shopTab);
@@ -702,21 +734,11 @@ function groupJoin(id) {
 /* ====================================================================
    준비 중인 화면
 ==================================================================== */
-function renderPlaceholders() {
-  const info = {
-    work: ['직업 활동', '맡은 일을<br>해 볼 시간이에요', '이번 서버 버전에는 넣지 않았어요. (오늘의 업무, 벌금, 제출 확인 등은 기존 앱 그대로 쓰고 있어요)'],
-  };
-  Object.keys(info).forEach((k) => {
-    const el = $('#lf-' + k); if (!el) return;
-    const [e, t, d] = info[k];
-    el.innerHTML = leafHead(e, t, k, false) + `<div class="empty">${d}</div>`;
-  });
-}
 
 /* ====================================================================
    교사 모드 — 기본정보
 ==================================================================== */
-const SUBS_INFO = [['students', '학생 관리'], ['payroll', '월급 지급'], ['adjust', '행복 · 신용 조정'], ['register', '학생 등록'], ['treasury', '국고'], ['settings', '설정'], ['import', '데이터 가져오기']];
+const SUBS_INFO = [['approvals', '승인'], ['students', '학생 관리'], ['payroll', '월급 지급'], ['adjust', '행복 · 신용 조정'], ['register', '학생 등록'], ['treasury', '국고'], ['settings', '설정'], ['import', '데이터 가져오기'], ['etc', '기타']];
 function subSegs(key, list) {
   return `<div class="segs">` + list.map(([id, label]) => `<button type="button" class="seg ${st.sub[key] === id ? 'on' : ''}" data-act="sub" data-key="${key}" data-id="${id}">${label}</button>`).join('') + `</div>`;
 }
@@ -732,6 +754,8 @@ function infoTeacherPanel() {
   else if (sub === 'treasury') inner = treasuryPanel(true);
   else if (sub === 'settings') inner = settingsPanel();
   else if (sub === 'import') inner = importPanel();
+  else if (sub === 'approvals') inner = approvalsPanel();
+  else if (sub === 'etc') inner = etcPanel();
   return `<section class="tpanel" aria-label="교사 모드"><span class="lbl">교사 모드</span>${subSegs('info', SUBS_INFO)}${inner}</section>`;
 }
 async function loadAdmStudents(rerender) {
@@ -745,13 +769,13 @@ async function loadAdmStudents(rerender) {
 function studentsTable(a) {
   if (!a.students.length) return '<p class="note">등록된 학생이 없어요. “학생 등록”에서 명단을 넣어 주세요.</p>';
   const jobOpts = (cur) => `<option value="">직업 없음</option>` + a.jobs.map((j) => `<option value="${j.id}" ${cur === j.id ? 'selected' : ''}>${esc(j.name)} (${j.count}/${j.capacity || '∞'})</option>`).join('');
-  return `<p class="note">직업 · 수학 점수는 바꾸면 바로 저장돼요. 자리는 “몇 줄-몇 번”을 적고 돈을 냈다면 체크한 뒤 저장을 눌러 주세요 (체크하면 월세가 면제돼요).</p>
+  return `<p class="note">직업 · 수학 점수는 바꾸면 바로 저장돼요. 자리는 “기타 → 자리 확인”에서 정해요. 돈을 낸 자리의 친구는 월세가 면제돼요.</p>
   <div class="tscroll"><table class="tbl"><thead><tr><th>번호</th><th>이름</th><th>${esc(a.currency)}</th><th>신용</th><th>수학</th><th>직업</th><th>자리</th><th></th></tr></thead><tbody>` +
     a.students.map((s) => `<tr data-sid="${esc(s.id)}"><td>${esc(s.id)}</td><td>${esc(s.name)}</td><td class="num ${s.debt ? 'neg' : ''}">${fmt(s.balance)}</td>` +
       `<td>${s.creditGrade}등급 (${s.creditTotal})</td>` +
       `<td><input class="mini" data-f="math" type="number" value="${s.math !== null ? s.math : ''}" placeholder="-"> <small>${s.mathGrade ? s.mathGrade + '등급' : ''}</small></td>` +
       `<td><select class="sel-s" data-f="job">${jobOpts(s.jobId)}</select></td>` +
-      `<td><input class="mini seat" data-f="seat" value="${esc(s.seat)}" placeholder="2-3"> <label><input type="checkbox" data-f="paid" ${s.seatPaid ? 'checked' : ''}> 냄</label> <button class="btn tiny gray" data-act="seatSave" data-id="${esc(s.id)}">저장</button></td>` +
+      `<td>${s.seat ? esc(String(s.seat).replace('P', '')) + (s.seatPaid ? ' <span class="badge green">냄</span>' : '') : '<small style="color:var(--sub)">없음</small>'}</td>` +
       `<td><button class="btn tiny gray" data-act="resetPin" data-id="${esc(s.id)}">비번 초기화</button></td></tr>`).join('') + `</tbody></table></div>`;
 }
 function payrollPanel(a) {
@@ -790,7 +814,7 @@ function registerPanel(a) {
 const SET_LABELS = [
   ['화폐단위', '화폐 이름', ''], ['나라이름', '나라 이름', ''], ['월세', '월세', '자리를 사지 않은 학생이 내는 금액'], ['소득세율', '소득세율 (%)', '월급에서 원천징수'],
   ['세금초기화일', '세금 주기 시작일 (2~28)', '이 날 새 세금 주기가 시작돼요'], ['빚허용', '세금 빚 허용 (Y/N)', 'Y면 잔액이 모자라도 세금은 빚으로 납부'], ['빚이면구매금지', '빚이면 구매 금지 (Y/N)', 'Y면 빚이 있으면 간식·쿠폰 불가'],
-  ['신용시작점수', '신용 시작 점수', ''], ['신용등급컷', '신용 등급 기준', '1/2/3/4등급 최소 점수'], ['수학등급컷', '수학 등급 기준', '1/2/3/4등급 최소 점수'], ['수학최대점수', '수학 최대 점수', ''], ['공동구매최소금액', '공동구매 최소 금액', ''], ['예금최소금액', '예금 최소 금액', ''], ['예금최대일수', '예금 최대 기간 (일)', '이 일수 이하 상품만 보여요'], ['보드최대사진', '보드 글당 사진 수', '한 글에 붙일 수 있는 사진 장수'], ['글당최대댓글', '보드 글당 댓글 수', ''],
+  ['신용시작점수', '신용 시작 점수', ''], ['신용등급컷', '신용 등급 기준', '1/2/3/4등급 최소 점수'], ['수학등급컷', '수학 등급 기준', '1/2/3/4등급 최소 점수'], ['수학최대점수', '수학 최대 점수', ''], ['공동구매최소금액', '공동구매 최소 금액', ''], ['예금최소금액', '예금 최소 금액', ''], ['예금최대일수', '예금 최대 기간 (일)', '이 일수 이하 상품만 보여요'], ['보드최대사진', '보드 글당 사진 수', '한 글에 붙일 수 있는 사진 장수'], ['글당최대댓글', '보드 글당 댓글 수', ''], ['지각벌금', '지각 벌금', '경찰이 지각에 매기는 금액'], ['일일벌금건수', '경찰 하루 벌금 신청 횟수', ''], ['벌금최대금액', '벌금 한 번 최대 금액', ''], ['통로위치', '자리표 통로 위치', '예: 2,4 → 2칸·4칸 뒤에 통로'],
 ];
 function settingsPanel() {
   const s = st.adm.settings;
@@ -807,7 +831,7 @@ function importPanel() {
     ${Object.keys(R.report).map((k) => `<div class="kv"><span>${esc(k)}</span><b>${fmt(R.report[k])}</b></div>`).join('')}
     <details style="margin-top:8px"><summary style="cursor:pointer;font-size:14px">학생 번호 대응표 (${R.mapping.length}명)</summary>${R.mapping.map((m) => `<div class="kv"><span>${esc(m.name)}</span><b>${esc(m.old)} → ${esc(m.id)}번</b></div>`).join('')}</details></div>` : '';
   return `<h2>기존 앱에서 데이터 가져오기</h2>
-    <p class="note">기존 앱의 Apps Script에서 <b>내보내기_서버버전</b>을 실행해 만든 <b>돼지공주나라_내보내기.json</b> 파일을 올려요. 학생·잔액·국고·직업·자리·신용·예금·상점·공동구매·보드 글이 들어오고, 거래원장과 보드 사진은 옮겨지지 않아요. 학생 비밀번호는 모두 1111이에요. 같은 파일을 다시 올려도 돈이 두 번 들어가지 않아요.</p>
+    <p class="note">기존 앱의 Apps Script에서 <b>내보내기_서버버전</b>을 실행해 만든 <b>돼지공주나라_내보내기.json</b> 파일을 올려요. 학생·잔액·국고·직업·자리·신용·예금·상점·공동구매가 들어오고, 거래원장과 보드는 옮겨지지 않아요. 학생 비밀번호는 모두 1111이에요. 같은 파일을 다시 올려도 돈이 두 번 들어가지 않아요.</p>
     <div class="form"><div class="field"><label for="impFile">내보내기 파일</label><input id="impFile" type="file" accept=".json,application/json" style="height:auto;padding:10px"></div></div>
     <div class="row-btn" style="margin-bottom:8px"><button type="button" class="btn gray" data-act="impPreview">1. 미리보기</button><button type="button" class="btn" data-act="impRun" ${R && R.preview ? '' : 'disabled'}>2. 가져오기</button></div>${rep}`;
 }
@@ -903,6 +927,7 @@ function groupsAdmin() {
    클릭 처리 (한 곳에서)
 ==================================================================== */
 async function afterMoney() { // 돈이 움직인 뒤 화면 새로 불러오기
+  st.w.seats = null; st.w.credit = null;
   st.shop = null; st.groups = null; st.bank = null; st.jobs = null; st.adm.assign = null; st.adm.groups = null; st.adm.shop = null; st.adm.treasury = null; st.adm.bank = null;
   await Promise.all([loadInfo(), st.tab === 'bank' ? loadBank() : null, st.tab === 'shop' ? loadShop() : null, st.tab === 'shop' && st.shopTab === '공동구매' ? loadGroups() : null]);
   if (isTeacher()) loadAdmStudents(false).then(() => { fillAsSel(); });
@@ -919,7 +944,7 @@ const ACT = {
   },
   sub: (d) => {
     st.sub[d.key] = d.id;
-    if (d.key === 'info') renderInfo(); else renderShop();
+    if (d.key === 'info' || d.key === 'etc') renderInfo(); else renderShop();
   },
   credit: () => showCredit(),
   allHistory: () => showAllHistory(),
@@ -1002,11 +1027,6 @@ const ACT = {
   resetPin: async (d) => {
     const r = await run('처리 중이에요', () => api(`/api/admin/students/${d.id}/resetpin`, { method: 'POST', body: {} }));
     if (r) toast(r.message);
-  },
-  seatSave: async (d, b) => {
-    const f = fieldsOf(b.closest('tr'));
-    const r = await run('저장하는 중이에요', () => api(`/api/admin/students/${d.id}/seat`, { method: 'POST', body: { seat: f.seat, paid: f.paid } }));
-    if (r) { toast(r.message); loadAdmStudents(false); if (String(st.asId) === String(d.id)) { st.shop = null; loadInfo(); if (st.tab === 'shop') loadShop(); } }
   },
   payConfirm: () => {
     openModal(`<h3>월급을 지급할까요?</h3><p>직업이 있는 모든 학생에게 지급돼요. 같은 요청은 두 번 지급되지 않아요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="payGo">지급하기</button></div>`);
@@ -1138,7 +1158,7 @@ function renderBoard() {
   else if (!st.boardId) body += boardListHtml();
   else body += boardViewHtml();
   if (st.tm.board && isTeacher() && st.board) body += boardTeacherPanel();
-  el.innerHTML = body;
+  el.innerHTML = body; applyTm(el, 'board');
 }
 function boardListHtml() {
   const list = st.board.boards;
@@ -1150,18 +1170,19 @@ function boardViewHtml() {
   const P = st.posts;
   if (!P) return back + '<div class="empty">불러오는 중이에요…</div>';
   const b = P.board, t = isTeacher();
-  const write = t ? `<button type="button" class="btn small" data-act="bWrite">선생님으로 글쓰기</button>` : (b.active ? `<button type="button" class="btn small" data-act="bWrite">글쓰기</button>` : '');
-  const head = `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px"><div><h2 style="margin:0 0 4px">${esc(b.name)}</h2><p class="note" style="margin:0">${esc(b.desc)}</p></div>${write}</div>`;
-  return back + head + (P.posts.length ? P.posts.map((p) => postHtml(p, b, t)).join('') : '<div class="empty">아직 글이 없어요. 첫 글을 남겨 보세요!</div>');
+  const plus = (t || b.active) ? `<button type="button" class="plus" data-act="bWrite" aria-label="${t ? '선생님으로 글쓰기' : '글쓰기'}" title="${t ? '선생님으로 글쓰기' : '글쓰기'}">+</button>` : '';
+  const head = `<div class="bhead">${plus}<div><h2 style="margin:0 0 4px">${esc(b.name)}</h2><p class="note" style="margin:0">${esc(b.desc)}</p></div></div>`;
+  return back + head + (P.posts.length ? `<div class="pad">${P.posts.map((p) => postHtml(p, b, t)).join('')}</div>` : '<div class="empty">아직 글이 없어요. 왼쪽 위의 + 버튼으로 첫 글을 남겨 보세요!</div>');
 }
 function postHtml(p, b, t) {
-  const photos = p.photos.length ? `<div class="pgrid${p.photos.length === 1 ? ' one' : ''}">` + p.photos.map((id, i) => `<img src="${photoUrl(id)}" loading="lazy" alt="${esc(p.name)}님이 올린 사진 ${i + 1}" data-act="bPhoto" data-id="${esc(id)}">`).join('') + `</div>` : '';
+  const photos = p.photos.length ? `<img class="pbig" src="${photoUrl(p.photos[0])}" loading="lazy" alt="${esc(p.name)}님이 올린 사진 1" data-act="bPhoto" data-id="${esc(p.photos[0])}">` +
+    (p.photos.length > 1 ? `<div class="pgrid">` + p.photos.slice(1).map((id, i) => `<img src="${photoUrl(id)}" loading="lazy" alt="${esc(p.name)}님이 올린 사진 ${i + 2}" data-act="bPhoto" data-id="${esc(id)}">`).join('') + `</div>` : '') : '';
   const cm = p.comments.map((c) => `<div class="cmt"><span><b>${esc(c.name)}</b>${esc(c.text)}<small>${esc(c.at)}</small></span>${t ? `<button type="button" class="btn tiny red" data-act="bCmtDel" data-id="${esc(c.id)}">삭제</button>` : ''}</div>`).join('');
-  const like = b.likes ? `<button type="button" class="like ${p.liked ? 'on' : ''}" data-act="bLike" data-id="${esc(p.id)}" ${t ? 'disabled' : ''} aria-pressed="${p.liked}">👍 추천 ${fmt(p.likes)}</button>` : '';
+  const like = b.likes ? `<button type="button" class="like ${p.liked ? 'on' : ''}" data-act="bLike" data-id="${esc(p.id)}" ${t ? 'disabled' : ''} aria-pressed="${p.liked}">👍 ${fmt(p.likes)}</button>` : '';
   const acts = (p.mine ? `<button type="button" class="btn tiny gray" data-act="bEdit" data-id="${esc(p.id)}">수정</button><button type="button" class="btn tiny red" data-act="bDel" data-id="${esc(p.id)}">삭제</button>` : '') +
-    (t ? `<button type="button" class="btn tiny red" data-act="bAdmDel" data-id="${esc(p.id)}">글 숨기기</button>` : '');
-  const form = b.comments && !t && b.active ? `<div class="cmtform"><input id="cm_${esc(p.id)}" type="text" maxlength="300" placeholder="댓글을 남겨요" aria-label="댓글"><button type="button" class="btn tiny" data-act="bCmt" data-id="${esc(p.id)}">달기</button></div>` : '';
-  return `<article class="post"><div class="who"><b>${esc(p.name)}</b><span>${esc(p.at)}</span></div>${p.text ? `<p class="txt">${esc(p.text)}</p>` : ''}${p.link ? `<a class="lnk" href="${esc(p.link)}" target="_blank" rel="noopener noreferrer">${esc(p.link)}</a>` : ''}${photos}<div class="bar2">${like}${acts}</div>${cm ? `<div style="margin-top:10px">${cm}</div>` : ''}${form}</article>`;
+    (t ? `<button type="button" class="btn tiny red" data-act="bAdmDel" data-id="${esc(p.id)}">숨기기</button>` : '');
+  const form = b.comments && !t && b.active ? `<div class="cmtform"><input id="cm_${esc(p.id)}" type="text" maxlength="300" placeholder="댓글" aria-label="댓글"><button type="button" class="btn tiny" data-act="bCmt" data-id="${esc(p.id)}">달기</button></div>` : '';
+  return `<article class="post">${photos}<div class="pbody"><div class="who"><b>${esc(p.name)}</b><span>${esc(p.at)}</span></div>${p.text ? `<p class="txt">${esc(p.text)}</p>` : ''}${p.link ? `<a class="lnk" href="${esc(p.link)}" target="_blank" rel="noopener noreferrer">${esc(p.link)}</a>` : ''}<div class="bar2">${like}${acts}</div>${cm ? `<div style="margin-top:8px">${cm}</div>` : ''}${form}</div></article>`;
 }
 
 /* 글쓰기 창 */
@@ -1226,7 +1247,8 @@ function boardTeacherPanel() {
     <div class="field"><label for="bdName">보드 이름</label><input id="bdName" type="text" maxlength="30" placeholder="자유 게시판"></div>
     <div class="field" style="flex-grow:2"><label for="bdDesc">설명</label><input id="bdDesc" type="text" maxlength="80" placeholder="하고 싶은 이야기를 자유롭게 남겨요"></div></div>
     <label style="font-size:14px;margin-right:16px"><input type="checkbox" id="bdCm" checked> 댓글 허용</label><label style="font-size:14px"><input type="checkbox" id="bdLk" checked> 추천 허용</label>
-    <div style="margin-top:12px"><button type="button" class="btn" data-act="bdNew">보드 만들기</button></div></section>`;
+    <div style="margin-top:12px"><button type="button" class="btn" data-act="bdNew">보드 만들기</button></div>
+    <h3 style="margin-top:24px">보드 전체 비우기</h3><p class="note">모든 보드와 글·사진·댓글을 한꺼번에 지워요.</p><button type="button" class="btn red small" data-act="boardWipe">보드 모두 지우기</button></section>`;
 }
 async function boardDo(text, path, body, after) {
   const r = await run(text, () => api(path, { method: 'POST', body: body || {} }));
@@ -1282,6 +1304,304 @@ const BOARD_ACT = {
   bdDelGo: (d) => boardDo('지우는 중이에요', `/api/admin/board/${d.id}/delete`, {}, afterBoards),
 };
 Object.assign(ACT, BOARD_ACT);
+
+/* ====================================================================
+   교사 모드 덮기 · 승인 · 기타
+==================================================================== */
+// 교사 모드가 켜져 있으면 학생 화면은 숨기고 교사 화면만 보여요
+function applyTm(el, key) {
+  const head = el.querySelector(':scope > .head'), panel = el.querySelector(':scope > .tpanel');
+  if (!head) return;
+  const wrap = document.createElement('div'); wrap.className = 'stud';
+  let n = head.nextSibling;
+  while (n && n !== panel) { const nx = n.nextSibling; wrap.appendChild(n); n = nx; }
+  head.after(wrap);
+  el.classList.toggle('tmon', !!(st.tm[key] && panel));
+}
+const TYPE_BADGE = { 벌금: 'warn', 국고지출: '', 자리징수: 'green', 알바수당: 'green' };
+async function loadApprovals(rerender) {
+  if (!isTeacher()) return;
+  try { st.adm.approvals = await api('/api/admin/approvals'); } catch (e) { toast(e.message, true); }
+  if (rerender !== false) { renderInfo(); }
+}
+const pendingCount = () => (st.adm.approvals ? st.adm.approvals.pending.length : 0);
+function apRow(p, chk) {
+  return `<div class="mrow">${chk ? `<input type="checkbox" class="apchk" data-id="${esc(p.id)}" aria-label="선택" checked>` : ''}<div class="t"><span class="badge ${TYPE_BADGE[p.type] || ''}">${esc(p.type)}</span> <b>${esc(p.student || '')}</b> ${fmt(p.amount)}<i>${esc(p.requester)} 신청 · ${esc(p.at)} · ${esc(p.reason)}</i></div>
+    <div class="acts">${p.type === '알바수당' ? `<input class="mini" id="apAmt_${esc(p.id)}" type="number" value="${p.amount}" aria-label="지급할 금액">` : ''}<button type="button" class="btn tiny" data-act="apOk" data-id="${esc(p.id)}">승인</button><button type="button" class="btn tiny gray" data-act="apNo" data-id="${esc(p.id)}">거절</button></div></div>`;
+}
+function approvalsPanel() {
+  const a = st.adm.approvals;
+  if (!a) { loadApprovals(); return '<p class="note">불러오는 중…</p>'; }
+  const fines = a.pending.filter((p) => p.type === '벌금'), rest = a.pending.filter((p) => p.type !== '벌금');
+  let h = `<h2>승인 대기 ${a.pending.length ? `<span class="badge warn">${a.pending.length}건</span>` : ''}</h2>`;
+  if (!a.pending.length) h += '<p class="note">지금 기다리는 신청이 없어요.</p>';
+  if (fines.length) h += `<h3 style="margin-top:16px">벌금 (${fines.length}건)</h3><div class="row-btn" style="margin:6px 0"><button type="button" class="btn tiny" data-act="apFinesOk">체크한 벌금 한꺼번에 승인</button><button type="button" class="btn tiny gray" data-act="apChkAll">전체 선택/해제</button></div>` + fines.map((p) => apRow(p, true)).join('');
+  if (rest.length) h += `<h3 style="margin-top:16px">그 밖의 신청 (${rest.length}건)</h3>` + rest.map((p) => apRow(p, false)).join('');
+  if (a.done.length) h += `<details style="margin-top:20px"><summary style="cursor:pointer;font-weight:700">최근 처리한 신청</summary>` + a.done.map((p) => `<div class="mrow"><div class="t"><span class="badge gray">${esc(p.status)}</span> ${esc(p.type)} · <b>${esc(p.student)}</b> ${fmt(p.amount)}<i>${esc(p.requester)} · ${esc(p.reason)}</i></div></div>`).join('') + `</details>`;
+  return h;
+}
+const SUBS_ETC = [['jobs', '직업 변경·추가'], ['seats', '자리 확인'], ['submit', '과제 즉시 체크']];
+function etcPanel() {
+  const k = st.sub.etc;
+  const inner = k === 'jobs' ? jobsEditorHtml() : k === 'seats' ? seatsHtml() : submitHtml(true);
+  return `<h2>기타</h2>${subSegs('etc', SUBS_ETC)}${inner}`;
+}
+/* ---- 직업 변경·추가 ---- */
+async function loadAdmJobs() { try { st.adm.jobs = await api('/api/admin/jobs'); } catch (e) { toast(e.message, true); } renderInfo(); }
+function jobsEditorHtml() {
+  const a = st.adm.jobs;
+  if (!a) { loadAdmJobs(); return '<p class="note">불러오는 중…</p>'; }
+  return `<p class="note">직업의 월급·등급·정원·권한·할 일을 바꾸거나 새 직업을 만들어요. 학생 배정은 “직업소”의 교사 모드에서 해요.</p><div class="row-btn" style="margin-bottom:10px"><button type="button" class="btn small" data-act="jobEdit" data-id="">+ 새 직업 만들기</button></div>` +
+    a.jobs.map((j) => `<div class="mrow"><div class="t"><b>${esc(j.name)}</b> <small>월급 ${fmt(j.salary)} · 신용${j.minCredit}·수학${j.minMath} · 정원 ${j.count}/${j.capacity || '∞'}${j.perms.length ? ' · ' + esc(j.perms.join(', ')) : ''}</small><i>매일 ${j.daily.length}개 · 주기적 ${j.periodic.length}개</i></div><div class="acts"><button type="button" class="btn tiny gray" data-act="jobEdit" data-id="${esc(j.id)}">고치기</button></div></div>`).join('');
+}
+function jobModal(id) {
+  const a = st.adm.jobs, j = a.jobs.find((x) => x.id === id) || { id: '', name: '', salary: 0, minCredit: 5, minMath: 5, desc: '', perms: [], capacity: 1, source: '국고', daily: [], periodic: [], reportable: false };
+  openModal(`<h3>${j.id ? '직업 고치기' : '새 직업'}</h3><div class="form">
+    <div class="field"><label for="jbName">직업 이름</label><input id="jbName" value="${esc(j.name)}"></div>
+    <div class="field"><label for="jbSal">월급 (세전)</label><input id="jbSal" type="number" value="${j.salary}"></div>
+    <div class="field"><label for="jbCap">정원 (0=제한 없음)</label><input id="jbCap" type="number" value="${j.capacity}"></div>
+    <div class="field"><label for="jbCr">필요한 신용등급 (이 등급 이상)</label><input id="jbCr" type="number" min="1" max="5" value="${j.minCredit}"></div>
+    <div class="field"><label for="jbMa">필요한 수학등급 (이 등급 이상)</label><input id="jbMa" type="number" min="1" max="5" value="${j.minMath}"></div>
+    <div class="field"><label for="jbSrc">월급 나오는 곳</label><select id="jbSrc"><option ${j.source === '국고' ? 'selected' : ''}>국고</option><option ${j.source !== '국고' ? 'selected' : ''}>민간</option></select></div>
+    <div class="field" style="flex-basis:100%"><label for="jbDesc">설명</label><input id="jbDesc" value="${esc(j.desc)}"></div>
+    <div class="field" style="flex-basis:100%"><label>직업 권한</label><div class="chips">${a.perms.map((p) => `<label class="chipbtn" style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" class="jbPerm" value="${p}" ${j.perms.includes(p) ? 'checked' : ''}> ${p}</label>`).join('')}<label class="chipbtn" style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="jbRep" ${j.reportable ? 'checked' : ''}> 한 일 보고하고 행복 신청</label></div></div>
+    <div class="field" style="flex-basis:100%"><label for="jbDaily">매일 할 일 (한 줄에 하나)</label><textarea id="jbDaily" style="height:80px">${esc(j.daily.join('\n'))}</textarea></div>
+    <div class="field" style="flex-basis:100%"><label for="jbPer">주기적으로 할 일 (한 줄에 하나)</label><textarea id="jbPer" style="height:80px">${esc(j.periodic.join('\n'))}</textarea></div></div>
+    <div class="row-btn"><button class="btn gray" data-act="close">그만두기</button>${j.id ? `<button class="btn red" data-act="jobDel" data-id="${esc(j.id)}">지우기</button>` : ''}<button class="btn" data-act="jobSave" data-id="${esc(j.id)}">저장</button></div>`, true);
+}
+
+/* ====================================================================
+   직업 활동
+==================================================================== */
+async function loadWork() {
+  if (isTeacher() && !st.asId) { renderWork(); return; }
+  try { st.w.info = await api('/api/work/info' + asQ()); } catch (e) { toast(e.message, true); }
+  renderWork();
+}
+function taskList(title, list) {
+  return `<div class="cbox"><h3>${title}</h3>` + (list.length ? `<ul class="tasks">${list.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '<p class="note" style="margin:0">없음</p>') + `</div>`;
+}
+function renderWork() {
+  const el = $('#lf-work'); if (!el) return;
+  let body = leafHead('직업 활동', '맡은 일을<br>해 볼 시간이에요', 'work', false);
+  const i = st.w.info;
+  if (isTeacher() && !st.asId) body += '<div class="empty">미리 볼 학생이 없어요.</div>';
+  else if (!i) body += '<div class="empty">불러오는 중이에요…</div>';
+  else if (!i.job) body += '<div class="empty">아직 직업이 없어요.<br>직업소에서 어떤 일이 있는지 살펴보세요.</div>';
+  else {
+    const j = i.job;
+    body += `<div class="cbox" style="margin-bottom:14px"><span class="badge">내 직업</span><h2 style="margin:8px 0 4px">${esc(j.name)}</h2><p class="note" style="margin:0">${esc(j.desc)}</p></div>
+      <div class="cols">${taskList('매일 할 일', j.daily)}${taskList('주기적으로 할 일', j.periodic)}</div>`;
+    const P = j.perms;
+    const tool = (title, inner) => `<section class="tool"><h2>${title}</h2>${inner}</section>`;
+    if (P.includes('벌금')) body += tool('벌금 매기기', finesHtml());
+    if (j.reportable) body += tool('한 일 보고하기', reportHtml());
+    if (P.includes('자리관리')) body += tool('자리 관리', seatsHtml());
+    if (P.includes('국고관리')) body += tool('국고 현황', treasuryWorkHtml());
+    if (P.includes('제출승인')) body += tool('제출 확인', submitHtml(false));
+    if (P.includes('신용관리')) body += tool('신용등급 현황', creditHtml());
+    const jump = [];
+    if (P.includes('은행관리')) jump.push(['bank', '은행 관리 열기']);
+    if (P.includes('상점관리')) jump.push(['shop', '상점 관리 열기']);
+    if (jump.length) body += tool('내 직업 권한', `<p class="note">은행·상점 관리는 해당 배너의 교사 모드 버튼에서 해요.</p><div class="row-btn">${jump.map(([k, l]) => `<button type="button" class="btn small gray" data-act="jumpTm" data-id="${k}">${l}</button>`).join('')}</div>`);
+  }
+  el.innerHTML = body; applyTm(el, 'work');
+}
+const noteIf = (cond, msg) => (cond ? `<p class="note">${msg}</p>` : '');
+/* ---- 벌금 ---- */
+async function loadFines() {
+  try { [st.w.fines, st.w.fineLog] = await Promise.all([api('/api/work/fines'), api('/api/work/mine?type=' + encodeURIComponent('벌금'))]); } catch (e) { st.w.fines = null; st.w.fineLog = []; if (isTeacher()) st.w.finesErr = '선생님은 학생 화면에서 벌금을 신청할 수 없어요'; else toast(e.message, true); }
+  renderWork();
+}
+function finesHtml() {
+  if (isTeacher()) return '<p class="note">미리보기 중에는 벌금을 신청할 수 없어요. 학생 계정으로 로그인하면 쓸 수 있어요.</p>';
+  const f = st.w.fines;
+  if (!f) { loadFines(); return '<p class="note">불러오는 중…</p>'; }
+  const fm = st.forms.fine = st.forms.fine || { item: 'late', targets: new Set() };
+  const it = f.items.find((x) => x.id === fm.item);
+  return `<p class="note">벌금은 선생님이 승인하면 반영돼요. 하루 ${f.daily}번까지 신청할 수 있고, 한 사람에게 ${fmt(f.max)}까지예요.</p>
+    <div class="chips">${f.items.map((x) => `<button type="button" class="chipbtn ${fm.item === x.id ? 'sel' : ''}" data-act="fineItem" data-id="${x.id}">${esc(x.name)}${x.amount !== null ? ' ' + fmt(x.amount) + esc(f.currency) : ''}</button>`).join('')}</div>
+    ${it.amount === null ? `<div class="form"><div class="field"><label for="fnAmt">금액 (${esc(f.currency)})</label><input id="fnAmt" type="number" inputmode="numeric" value="${fm.amount || ''}"></div></div>` : ''}
+    <div class="form"><div class="field"><label for="fnNote">무슨 일이었나요? (선택)</label><input id="fnNote" maxlength="100" value="${esc(fm.note || '')}"></div></div>
+    <p class="note" style="margin-bottom:6px">벌금을 매길 친구 (${fm.targets.size}명 선택)</p>
+    <div class="chips">${f.students.map((s) => `<button type="button" class="chipbtn ${fm.targets.has(s.id) ? 'sel' : ''}" data-act="fineTog" data-id="${esc(s.id)}">${esc(s.name)}</button>`).join('')}</div>
+    <button type="button" class="btn" data-act="fineGo">선생님께 신청하기</button>` +
+    ((st.w.fineLog || []).length ? `<h3 style="margin-top:20px">내가 신청한 벌금</h3>` + st.w.fineLog.map((x) => `<div class="mrow"><div class="t"><b>${esc(x.student)}</b> ${fmt(x.amount)}<i>${esc(x.at)} · ${esc(x.reason)}</i></div><span class="badge ${x.status === '승인' ? 'green' : x.status === '대기' ? '' : 'gray'}">${esc(x.status)}</span></div>`).join('') : '');
+}
+/* ---- 한 일 보고 (아르바이트 등) ---- */
+async function loadReports() { try { st.w.reports = await api('/api/work/mine?type=' + encodeURIComponent('알바수당')); } catch (e) { st.w.reports = []; } renderWork(); }
+function reportHtml() {
+  if (isTeacher()) return '<p class="note">미리보기 중에는 보고할 수 없어요.</p>';
+  if (!st.w.reports) { loadReports(); return '<p class="note">불러오는 중…</p>'; }
+  return `<p class="note">한 일을 적고 받고 싶은 ${esc(cur())}을 적어 선생님께 보내요. 승인되면 받아요.</p>
+    <div class="form"><div class="field" style="flex-basis:100%"><label for="rpText">한 일</label><textarea id="rpText" maxlength="200" style="height:80px" placeholder="예) 쉬는 시간에 칠판을 깨끗이 지웠어요"></textarea></div>
+    <div class="field"><label for="rpAmt">받고 싶은 ${esc(cur())}</label><input id="rpAmt" type="number" inputmode="numeric"></div></div>
+    <button type="button" class="btn" data-act="rpGo">선생님께 보내기</button>` +
+    (st.w.reports.length ? `<h3 style="margin-top:20px">내 보고</h3>` + st.w.reports.map((x) => `<div class="mrow"><div class="t"><b>${esc(x.reason)}</b><i>${esc(x.at)} · 신청 ${fmt(x.amount)}</i></div><span class="badge ${x.status === '승인' ? 'green' : x.status === '대기' ? '' : 'gray'}">${esc(x.status)}</span></div>`).join('') : '');
+}
+/* ---- 자리 ---- */
+async function loadSeats() { try { st.w.seats = await api('/api/work/seats'); } catch (e) { toast(e.message, true); st.w.seats = { seats: [], students: [], aisle: [], rows: 0, cols: 0, currency: '행복' }; } if (st.tab === 'work') renderWork(); renderInfo(); }
+function seatsHtml() {
+  const v = st.w.seats;
+  if (!v) { loadSeats(); return '<p class="note">불러오는 중…</p>'; }
+  if (!v.seats.length) return `<p class="note">아직 자리가 없어요. 줄과 칸 수를 넣어 한 번에 만들어요.</p><div class="form"><div class="field"><label for="sdRows">줄 수</label><input id="sdRows" type="number" value="6"></div><div class="field"><label for="sdCols">한 줄의 칸 수</label><input id="sdCols" type="number" value="4"></div><div class="field"><label for="sdPrice">처음 가격</label><input id="sdPrice" type="number" value="0"></div><button type="button" class="btn" data-act="seatInit">자리 만들기</button></div>`;
+  const map = {}; v.seats.forEach((s) => (map[s.row + '-' + s.col] = s));
+  let rows = '';
+  for (let r = 1; r <= v.rows; r++) {
+    let cells = '';
+    for (let c = 1; c <= v.cols; c++) {
+      const s = map[r + '-' + c];
+      cells += s ? `<button type="button" class="seat ${s.paid ? 'paid' : s.studentId ? 'taken' : ''} ${s.pending ? 'pend' : ''}" data-act="seatOpen" data-id="${esc(s.id)}" aria-label="${r}줄 ${c}칸"><small>${r}-${c}</small><b>${esc(s.name || '비었음')}</b><i>${fmt(s.price)}${s.paid ? ' · 냄' : s.pending ? ' · 신청중' : ''}</i></button>` : '<div class="seat none"></div>';
+      if (v.aisle.includes(c) && c < v.cols) cells += '<div class="aisle"></div>';
+    }
+    rows += `<div class="srow">${cells}</div>`;
+  }
+  const fm = st.forms.seatBulk = st.forms.seatBulk || {};
+  return `<p class="note">칸을 눌러 가격을 정하고 친구를 앉혀요. 돈은 “징수 신청”을 하면 선생님이 승인한 뒤 국고로 들어가요. 자리를 산 친구는 월세(${fmt(v.rent)})가 면제돼요. <span class="badge gray">회색</span> 비었음 · <span class="badge">파랑</span> 등록됨 · <span class="badge green">초록</span> 낸 자리</p>
+    <div class="blackboard">칠판</div><div class="sgrid">${rows}</div>
+    <div class="form" style="margin-top:14px"><div class="field"><label for="sbRow">줄 (비우면 전체)</label><input id="sbRow" type="number" value="${esc(fm.row || '')}"></div><div class="field"><label for="sbPrice">가격 한꺼번에</label><input id="sbPrice" type="number"></div><button type="button" class="btn small sec" data-act="seatBulk">가격 맞추기</button></div>
+    <div class="form"><div class="field"><label for="saRow">줄</label><input id="saRow" type="number"></div><div class="field"><label for="saCol">칸</label><input id="saCol" type="number"></div><div class="field"><label for="saPrice">가격</label><input id="saPrice" type="number" value="0"></div><button type="button" class="btn small sec" data-act="seatAdd">칸 추가</button></div>`;
+}
+function seatModal(id) {
+  const v = st.w.seats, s = v.seats.find((x) => x.id === id); if (!s) return;
+  const opts = `<option value="">(비움)</option>` + v.students.map((x) => `<option value="${esc(x.id)}" ${s.studentId === x.id ? 'selected' : ''}>${esc(x.name)}${x.seat && x.seat !== s.id ? ' · ' + esc(x.seat.replace('P', '')) + ' 자리' : ''}</option>`).join('');
+  openModal(`<h3>${s.row}줄 ${s.col}칸</h3>${s.paid ? '<p>이미 돈을 낸 자리예요. 가격과 앉은 친구를 바꿀 수 없어요.' + (isTeacher() ? ' 선생님은 아래에서 풀 수 있어요.' : ' 바꾸려면 선생님이 먼저 풀어야 해요.') + '</p>' : s.studentId ? `<p>${esc(s.name)}의 행복 ${fmt(s.balance)}${s.shortfall ? ` · <b style="color:var(--red)">${fmt(s.shortfall)} 모자라요</b>` : ' · 낼 수 있어요'}</p>` : ''}
+    <div class="form"><div class="field"><label for="smPrice">가격</label><input id="smPrice" type="number" value="${s.price}" ${s.paid ? 'disabled' : ''}></div>
+    <div class="field"><label for="smWho">앉는 친구</label><select id="smWho" ${s.paid ? 'disabled' : ''}>${opts}</select></div></div>
+    <div class="row-btn">${s.paid ? '' : `<button class="btn" data-act="seatSave" data-id="${esc(s.id)}">저장</button>`}${!s.paid && s.studentId ? `<button class="btn sec" data-act="seatCollect" data-id="${esc(s.id)}" ${s.pending ? 'disabled' : ''}>${s.pending ? '신청해 둠' : '징수 신청'}</button>` : ''}</div>
+    <div class="row-btn">${!s.paid ? `<button class="btn gray" data-act="seatDel" data-id="${esc(s.id)}">칸 없애기</button>` : ''}${s.paid && isTeacher() ? `<button class="btn gray" data-act="seatRelease" data-id="${esc(s.id)}" data-refund="0">풀기</button><button class="btn red" data-act="seatRelease" data-id="${esc(s.id)}" data-refund="1">풀고 환불</button>` : ''}<button class="btn gray" data-act="close">닫기</button></div>`);
+}
+/* ---- 국세청: 국고 ---- */
+function treasuryWorkHtml() {
+  const t = st.adm.treasury;
+  if (!t) { loadTreasury(); return '<p class="note">불러오는 중…</p>'; }
+  const unpaid = (t.unpaid || []).map((u) => `<div class="cbox" style="margin-bottom:10px"><div class="kv"><span><b>${esc(u.name)}</b></span><b>${u.paid}/${u.total}명 납부${u.exempt ? ` · 면제 ${u.exempt}명` : ''}</b></div>${u.unpaid.length ? `<p class="note" style="margin:6px 0 0">아직 안 낸 친구: ${u.unpaid.map(esc).join(', ')}</p>` : '<p class="note" style="margin:6px 0 0">모두 냈어요 🎉</p>'}</div>`).join('');
+  return treasuryPanel(false) + `<h3 style="margin-top:20px">이번 세금 납부 현황</h3>${unpaid}` +
+    (isTeacher() ? '' : `<h3 style="margin-top:20px">국고에서 쓰기 신청</h3><p class="note">선생님이 승인하면 국고에서 나가요. 받을 친구를 고르면 그 친구에게 ${esc(t.currency)}이 지급돼요.</p>
+    <div class="form"><div class="field"><label for="tqKind">항목</label><select id="tqKind">${t.outKinds.map((k) => `<option>${esc(k)}</option>`).join('')}</select></div><div class="field"><label for="tqAmt">금액</label><input id="tqAmt" type="number" inputmode="numeric"></div>
+    <div class="field"><label for="tqWho">받는 친구 (선택)</label><select id="tqWho"><option value="">(없음)</option>${(t.students || []).map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></div>
+    <div class="field" style="flex-basis:100%"><label for="tqWhy">무엇에 쓰나요?</label><input id="tqWhy" maxlength="100"></div></div><button type="button" class="btn" data-act="tqGo">선생님께 신청하기</button>`);
+}
+/* ---- 제출 확인 ---- */
+async function loadSubmit() { try { st.w.submit = await api('/api/work/submit'); } catch (e) { toast(e.message, true); st.w.submit = { item: '', status: {}, students: [], by: '', at: 0 }; } if (st.tab === 'work') renderWork(); renderInfo(); }
+function submitHtml(teacher) {
+  const v = st.w.submit;
+  if (!v) { loadSubmit(); return '<p class="note">불러오는 중…</p>'; }
+  const n1 = Object.values(v.status).filter((x) => x === '제출').length, n2 = Object.values(v.status).filter((x) => x === '미제출').length;
+  return `<p class="note">친구 이름을 누를 때마다 <b>제출 → 미제출 → 없음</b>으로 바뀌어요. 두 명이 함께 체크해도 같은 화면이 공유돼요. ${teacher ? '다 되면 “기록으로 저장”으로 신용점수에 반영해요.' : '기록 저장은 선생님이 해요.'}</p>
+    <div class="form"><div class="field"><label for="subItem">항목 이름</label><input id="subItem" maxlength="60" value="${esc(v.item)}" placeholder="예) 수학 숙제"></div></div>
+    <div class="chips">${v.students.map((s) => { const x = v.status[s.id] || ''; return `<button type="button" class="chipbtn ${x === '제출' ? 'sel' : x === '미제출' ? 'bad' : ''}" data-act="subTog" data-id="${esc(s.id)}">${esc(s.name)} <small>${x || '—'}</small></button>`; }).join('')}</div>
+    <p class="note">제출 ${n1}명 · 미제출 ${n2}명${v.by ? ` · 마지막 수정: ${esc(v.by)}` : ''}</p>
+    <div class="row-btn" style="margin-bottom:6px"><button type="button" class="btn tiny gray" data-act="subAll" data-id="제출">모두 제출</button><button type="button" class="btn tiny gray" data-act="subAll" data-id="미제출">모두 미제출</button><button type="button" class="btn tiny gray" data-act="subAll" data-id="">모두 지우기</button><button type="button" class="btn tiny gray" data-act="subReload">새로고침</button>${teacher ? '<button type="button" class="btn tiny" data-act="subSave">기록으로 저장</button>' : ''}</div>`;
+}
+/* ---- 신용등급 평가원 ---- */
+async function loadCredit() { try { st.w.credit = await api('/api/work/credit'); } catch (e) { toast(e.message, true); } renderWork(); }
+function creditHtml() {
+  const c = st.w.credit;
+  if (!c) { loadCredit(); return '<p class="note">불러오는 중…</p>'; }
+  const max = Math.max(1, ...c.dist);
+  const prev = st.w.creditPrev;
+  return `<div class="mbar" style="height:110px">${c.dist.map((n, i) => `<div><span style="display:flex;align-items:flex-end;height:80px;width:100%;justify-content:center"><i style="height:${(n / max) * 80}px;width:50%"></i></span>${i + 1}등급<br><b>${n}명</b></div>`).join('')}</div>
+    <div class="form"><div class="field"><label for="cuts">등급 기준 (1·2·3·4등급 최소 점수)</label><input id="cuts" value="${esc(prev ? prev.cuts : c.cuts)}"></div><button type="button" class="btn small gray" data-act="cutPrev">미리보기</button><button type="button" class="btn small" data-act="cutSave">저장</button></div>` +
+    (prev ? `<div class="cbox" style="margin-bottom:12px"><b>바꾸면?</b> ${prev.dist.map((n, i) => `${i + 1}등급 ${n}명`).join(' · ')}<br><small>${prev.changes.length ? prev.changes.map((x) => `${esc(x.name)} ${x.from}→${x.to}등급`).join(', ') : '달라지는 친구는 없어요'}</small></div>` : '') +
+    `<div class="tscroll"><table class="tbl"><thead><tr><th>이름</th><th>점수</th><th>등급</th><th>제출</th><th>미제출</th></tr></thead><tbody>${c.list.map((x) => `<tr><td>${esc(x.name)}</td><td class="num">${x.total}</td><td>${x.grade}등급</td><td>${x.submitted}</td><td>${x.missed}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+const WORK_ACT = {
+  jumpTm: (d) => { st.tm[d.id] = true; goTab(d.id); if (d.id === 'bank') renderBank(); else renderShop(); },
+  /* 승인 */
+  apOk: async (d) => {
+    const amt = document.getElementById('apAmt_' + d.id);
+    const r = await run('승인하는 중이에요', () => api(`/api/admin/approvals/${d.id}/approve`, { method: 'POST', body: { amount: amt ? amt.value : undefined } }));
+    if (r) { toast(r.message); await loadApprovals(); await afterMoney(); st.w.seats = null; }
+  },
+  apNo: async (d) => { const r = await run('처리하는 중이에요', () => api(`/api/admin/approvals/${d.id}/reject`, { method: 'POST', body: {} })); if (r) { toast(r.message); st.w.seats = null; loadApprovals(); } },
+  apChkAll: () => { const b = [...document.querySelectorAll('.apchk')]; const on = b.some((x) => !x.checked); b.forEach((x) => (x.checked = on)); },
+  apFinesOk: async () => {
+    const ids = [...document.querySelectorAll('.apchk:checked')].map((x) => x.dataset.id);
+    if (!ids.length) return toast('승인할 벌금을 체크해 주세요', true);
+    const r = await run('승인하는 중이에요', () => api('/api/admin/approvals/approve-many', { method: 'POST', body: { ids } }));
+    if (r) { toast(r.message); await loadApprovals(); await afterMoney(); }
+  },
+  /* 직업 편집 */
+  jobEdit: (d) => jobModal(d.id),
+  jobSave: async (d) => {
+    const body = { id: d.id || undefined, name: val('jbName'), salary: val('jbSal'), capacity: val('jbCap'), minCredit: val('jbCr'), minMath: val('jbMa'), source: val('jbSrc'), desc: val('jbDesc'),
+      perms: [...document.querySelectorAll('.jbPerm:checked')].map((x) => x.value), reportable: document.getElementById('jbRep').checked, daily: val('jbDaily'), periodic: val('jbPer') };
+    const r = await run('저장하는 중이에요', () => api('/api/admin/jobs/save', { method: 'POST', body }));
+    if (r) { closeModal(); toast(r.message); st.jobs = null; st.adm.assign = null; st.w.info = null; loadAdmJobs(); loadAdmStudents(false); }
+  },
+  jobDel: (d) => openModal(`<h3>이 직업을 지울까요?</h3><p>이 직업을 가진 친구는 직업이 비게 돼요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="jobDelGo" data-id="${esc(d.id)}">지우기</button></div>`),
+  jobDelGo: async (d) => { const r = await run('지우는 중이에요', () => api(`/api/admin/jobs/${d.id}/delete`, { method: 'POST', body: {} })); if (r) { closeModal(); toast(r.message); st.jobs = null; st.adm.assign = null; loadAdmJobs(); loadAdmStudents(false); } },
+  /* 벌금 */
+  fineItem: (d) => { const fm = st.forms.fine; fm.amount = val('fnAmt') || fm.amount; fm.note = val('fnNote'); fm.item = d.id; renderWork(); },
+  fineTog: (d) => { const fm = st.forms.fine; fm.amount = val('fnAmt') || fm.amount; fm.note = val('fnNote'); fm.targets.has(d.id) ? fm.targets.delete(d.id) : fm.targets.add(d.id); renderWork(); },
+  fineGo: async () => {
+    const fm = st.forms.fine;
+    const r = await run('신청하는 중이에요', () => api('/api/work/fines', { method: 'POST', body: { targets: [...fm.targets], itemId: fm.item, amount: val('fnAmt'), note: val('fnNote') } }));
+    if (r) { toast(r.message); st.forms.fine = { item: 'late', targets: new Set() }; loadFines(); }
+  },
+  /* 보고 */
+  rpGo: async () => {
+    const r = await run('보내는 중이에요', () => api('/api/work/report', { method: 'POST', body: { content: val('rpText'), amount: val('rpAmt') } }));
+    if (r) { toast(r.message); loadReports(); }
+  },
+  /* 자리 */
+  seatOpen: (d) => seatModal(d.id),
+  seatInit: async () => { const r = await run('만드는 중이에요', () => api('/api/work/seats/init', { method: 'POST', body: { rows: val('sdRows'), cols: val('sdCols'), price: val('sdPrice') } })); if (r) { toast(r.message); loadSeats(); } },
+  seatAdd: async () => { const r = await run('만드는 중이에요', () => api('/api/work/seats/add', { method: 'POST', body: { row: val('saRow'), col: val('saCol'), price: val('saPrice') } })); if (r) { toast(r.message); loadSeats(); } },
+  seatBulk: async () => { const r = await run('바꾸는 중이에요', () => api('/api/work/seats/bulk-price', { method: 'POST', body: { row: val('sbRow'), price: val('sbPrice') } })); if (r) { toast(r.message); loadSeats(); } },
+  seatSave: async (d) => {
+    const s = st.w.seats.seats.find((x) => x.id === d.id);
+    const price = val('smPrice'), who = val('smWho');
+    const r = await run('저장하는 중이에요', async () => {
+      if (String(price) !== String(s.price)) await api(`/api/work/seats/${d.id}/set`, { method: 'POST', body: { price } });
+      if (who !== s.studentId) await api(`/api/work/seats/${d.id}/assign`, { method: 'POST', body: { studentId: who } });
+      return true;
+    });
+    if (r) { closeModal(); toast('저장했어요'); st.info = null; loadSeats(); if (isTeacher()) loadAdmStudents(false); }
+  },
+  seatCollect: async (d) => { const r = await run('신청하는 중이에요', () => api(`/api/work/seats/${d.id}/collect`, { method: 'POST', body: {} })); if (r) { closeModal(); toast(r.message); loadSeats(); loadApprovals(false); } },
+  seatDel: async (d) => { const r = await run('처리하는 중이에요', () => api(`/api/work/seats/${d.id}/delete`, { method: 'POST', body: {} })); if (r) { closeModal(); toast(r.message); loadSeats(); } },
+  seatRelease: async (d) => { const r = await run('풀고 있어요', () => api(`/api/admin/seats/${d.id}/release`, { method: 'POST', body: { refund: d.refund === '1' } })); if (r) { closeModal(); toast(r.message); st.info = null; loadSeats(); afterMoney(); } },
+  /* 국세청 */
+  tqGo: async () => { const r = await run('신청하는 중이에요', () => api('/api/work/treasury/request', { method: 'POST', body: { kind: val('tqKind'), amount: val('tqAmt'), studentId: val('tqWho'), reason: val('tqWhy') } })); if (r) { toast(r.message); st.adm.treasury = null; loadTreasury(); } },
+  /* 제출 */
+  subTog: async (d) => {
+    const cur_ = (st.w.submit.status[d.id] || ''), next = cur_ === '' ? '제출' : cur_ === '제출' ? '미제출' : '';
+    st.w.submit.status[d.id] = next; if (!next) delete st.w.submit.status[d.id];
+    const item = val('subItem'); st.w.submit.item = item;
+    if (st.tab === 'work') renderWork(); renderInfo();
+    try { st.w.submit = await api('/api/work/submit/check', { method: 'POST', body: { studentId: d.id, status: next, item } }); } catch (e) { toast(e.message, true); }
+    if (st.tab === 'work') renderWork(); renderInfo();
+  },
+  subAll: async (d) => { const r = await run('처리하는 중이에요', () => api('/api/work/submit/all', { method: 'POST', body: { status: d.id } })); if (r) { st.w.submit = r; if (st.tab === 'work') renderWork(); renderInfo(); } },
+  subReload: () => { st.w.submit = null; if (st.tab === 'work') renderWork(); renderInfo(); },
+  subSave: async () => {
+    const r = await run('저장하는 중이에요', () => api('/api/admin/submit/save', { method: 'POST', body: { item: val('subItem') } }));
+    if (r) { toast(r.message); st.w.submit = null; st.info = null; st.adm.students = null; loadAdmStudents(); loadInfo(); }
+  },
+  /* 신용 */
+  cutPrev: async () => { const r = await run('계산하는 중이에요', () => api('/api/work/credit/preview', { method: 'POST', body: { cuts: val('cuts') } })); if (r) { st.w.creditPrev = { ...r, cuts: val('cuts') }; renderWork(); } },
+  cutSave: async () => { const r = await run('저장하는 중이에요', () => api('/api/work/credit/save', { method: 'POST', body: { cuts: val('cuts') } })); if (r) { toast(r.message); st.w.creditPrev = null; st.w.credit = null; st.info = null; loadCredit(); } },
+  /* 은행 상품 */
+  prodEdit: (d) => {
+    const r = (st.adm.bank.rates || []).find((x) => String(x.days) === String(d.days)) || { name: '', days: '', rates: [0, 0, 0, 0, 0] };
+    openModal(`<h3>${r.name ? '예금 상품 고치기' : '새 예금 상품'}</h3><p>이름에 기간을 적어 주세요. (1주 · 2주 · 1달 …) 기간은 이름에서 알아서 읽어요.</p><div class="form"><div class="field"><label for="pdName">상품 이름</label><input id="pdName" value="${esc(r.name)}" placeholder="1주"></div></div>
+      <div class="form">${r.rates.map((v, i) => `<div class="field" style="flex-basis:70px"><label for="pdR${i}">${i + 1}등급 %</label><input id="pdR${i}" type="number" value="${v}"></div>`).join('')}</div>
+      <div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="prodSave">저장</button></div>`, true);
+  },
+  prodSave: async () => {
+    const r = await run('저장하는 중이에요', () => api('/api/admin/bank/product', { method: 'POST', body: { name: val('pdName'), rates: [0, 1, 2, 3, 4].map((i) => val('pdR' + i)) } }));
+    if (r) { closeModal(); toast(r.message); st.bank = null; loadAdmBank(); }
+  },
+  prodDel: (d) => openModal(`<h3>이 상품을 없앨까요?</h3><p>이미 맡긴 예금은 그대로 유지돼요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="prodDelGo" data-days="${d.days}">없애기</button></div>`),
+  prodDelGo: async (d) => { const r = await run('처리하는 중이에요', () => api(`/api/admin/bank/product/${d.days}/delete`, { method: 'POST', body: {} })); if (r) { closeModal(); toast(r.message); st.bank = null; loadAdmBank(); } },
+  /* 보드 전체 삭제 */
+  boardWipe: () => openModal(`<h3>보드를 모두 지울까요?</h3><p>모든 보드와 글·사진·댓글·추천이 사라지고 되돌릴 수 없어요. 확인하려면 <b>삭제</b>라고 적어 주세요.</p><div class="field"><input id="wipeWord" placeholder="삭제"></div><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="boardWipeGo">모두 지우기</button></div>`),
+  boardWipeGo: async () => { const r = await run('지우는 중이에요', () => api('/api/admin/boards/wipe-all', { method: 'POST', body: { confirm: val('wipeWord') } })); if (r) { closeModal(); toast(r.message); st.boardId = ''; st.posts = null; loadBoards(); } },
+};
+Object.assign(ACT, WORK_ACT);
 
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]');
