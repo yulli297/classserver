@@ -174,7 +174,21 @@ button.stat { cursor: pointer; }
 .bfull .post.dragover { outline: 3px dashed var(--blue); }
 .bfull .post[draggable=true] { cursor: grab; }
 .bfull .post.dragging { opacity: .4; }
-.bfull .pad { padding-top: 6px; }
+.bfull .pad { columns: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 22px 20px; padding: 6px 0 0; align-items: start; }
+.bfull .pad .post { display: flex; flex-direction: column; width: auto; margin: 0; min-height: 290px; border: 0; border-radius: 14px; box-shadow: 0 2px 6px rgba(0,0,0,.08); cursor: pointer; transition: transform .15s, box-shadow .15s; }
+.bfull .pad .post:hover { transform: translateY(-3px); box-shadow: 0 8px 18px rgba(0,0,0,.12); }
+.bfull .pad .pbody { flex: 1; padding: 12px 14px; }
+.cph { position: relative; height: 110px; border-radius: 8px; margin-bottom: 10px; background: var(--line) center / cover no-repeat; }
+.cph .more { position: absolute; right: 6px; bottom: 6px; background: rgba(25,31,40,.7); color: #fff; font-size: 11px; border-radius: 999px; padding: 2px 8px; }
+@media (max-width: 640px) { .bfull .pad { grid-template-columns: repeat(2, 1fr); gap: 14px 12px; } .bfull .pad .post { min-height: 250px; } .cph { height: 90px; } }
+.bfull .post .who b { font-size: 14px; } .bfull .post .who span { font-size: 11px; }
+.bfull .post .txt.clamp { font-size: 13.5px; margin: 0; display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
+.cfoot { display: flex; gap: 12px; padding: 8px 14px 12px; font-size: 12px; color: var(--sub); border-top: 1px solid var(--line); }
+.bfull .mv { opacity: 0; transition: opacity .15s; position: absolute; top: 6px; left: 6px; right: 6px; padding: 0; z-index: 2; justify-content: space-between; }
+.bfull .post { position: relative; }
+.bfull .post:hover .mv, .bfull .post:focus-within .mv { opacity: 1; }
+@media (hover: none) { .bfull .mv { opacity: 1; } }
+.bfull .mv .btn { box-shadow: 0 1px 4px rgba(0,0,0,.2); }
 .bfull .mv { display: flex; gap: 6px; padding: 8px 12px 0; align-items: center; font-size: 12px; color: var(--sub); }
 .pad { columns: 3 230px; column-gap: 14px; }
 .pad .post { break-inside: avoid; display: inline-block; width: 100%; padding: 0; overflow: hidden; background: #fff; border: 1.5px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,.04); }
@@ -356,7 +370,7 @@ function openModal(html, wide) {
   $('#modal').hidden = false;
   const f = $('#sheet input, #sheet select, #sheet textarea'); if (f) setTimeout(() => f.focus(), 50);
 }
-function closeModal() { $('#modal').hidden = true; $('#sheet').innerHTML = ''; }
+function closeModal() { st.openPost = ''; $('#modal').hidden = true; $('#sheet').innerHTML = ''; }
 $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) { closeModal(); e.stopImmediatePropagation(); } });
 
@@ -1186,7 +1200,7 @@ function renderBoardFull() {
   if (!st.boardId || !st.board) { if (f) { f.remove(); document.body.style.overflow = ''; } return; }
   const keep = f ? f.scrollTop : 0;
   if (!f) { f = document.createElement('div'); f.id = 'bfull'; f.className = 'bfull'; f.setAttribute('role', 'dialog'); f.setAttribute('aria-label', '보드'); document.body.appendChild(f); document.body.style.overflow = 'hidden'; }
-  f.innerHTML = boardViewHtml(); f.scrollTop = keep;
+  f.innerHTML = boardViewHtml(); f.scrollTop = keep; refreshPostModal();
 }
 function boardListHtml() {
   const list = st.board.boards;
@@ -1202,7 +1216,7 @@ function boardViewHtml() {
   const head = `<div class="bhead">${plus}<div><h2 style="margin:0 0 4px">${esc(b.name)}</h2><p class="note" style="margin:0">${esc(b.desc)}${t ? ' · 카드를 끌어서 옮길 수 있어요' : ''}</p></div>${close}</div>`;
   return head + (P.posts.length ? `<div class="pad">${P.posts.map((p) => postHtml(p, b, t)).join('')}</div>` : '<div class="empty">아직 글이 없어요. 왼쪽 위의 + 버튼으로 첫 글을 남겨 보세요!</div>');
 }
-function postHtml(p, b, t) {
+function postFullHtml(p, b, t) {
   const photos = p.photos.length ? `<img class="pbig" src="${photoUrl(p.photos[0])}" loading="lazy" alt="${esc(p.name)}님이 올린 사진 1" data-act="bPhoto" data-id="${esc(p.photos[0])}">` +
     (p.photos.length > 1 ? `<div class="pgrid">` + p.photos.slice(1).map((id, i) => `<img src="${photoUrl(id)}" loading="lazy" alt="${esc(p.name)}님이 올린 사진 ${i + 2}" data-act="bPhoto" data-id="${esc(id)}">`).join('') + `</div>` : '') : '';
   const cm = p.comments.map((c) => `<div class="cmt"><span><b>${esc(c.name)}</b>${esc(c.text)}<small>${esc(c.at)}</small></span>${t ? `<button type="button" class="btn tiny red" data-act="bCmtDel" data-id="${esc(c.id)}">삭제</button>` : ''}</div>`).join('');
@@ -1211,9 +1225,22 @@ function postHtml(p, b, t) {
     (t ? `<button type="button" class="btn tiny red" data-act="bAdmDel" data-id="${esc(p.id)}">숨기기</button>` : '');
   const form = b.comments && !t && b.active ? `<div class="cmtform"><input id="cm_${esc(p.id)}" type="text" maxlength="300" placeholder="댓글" aria-label="댓글"><button type="button" class="btn tiny" data-act="bCmt" data-id="${esc(p.id)}">달기</button></div>` : '';
   const mv = t ? `<div class="mv"><button type="button" class="btn tiny gray" data-act="bMove" data-id="${esc(p.id)}" data-d="-1" aria-label="앞으로">◀ 앞으로</button><button type="button" class="btn tiny gray" data-act="bMove" data-id="${esc(p.id)}" data-d="1" aria-label="뒤로">뒤로 ▶</button></div>` : '';
-  return `<article class="post" data-pid="${esc(p.id)}"${t ? ' draggable="true"' : ''}>${mv}${photos}<div class="pbody"><div class="who"><b>${esc(p.name)}</b><span>${esc(p.at)}</span></div>${p.text ? `<p class="txt">${esc(p.text)}</p>` : ''}${p.link ? `<a class="lnk" href="${esc(p.link)}" target="_blank" rel="noopener noreferrer">${esc(p.link)}</a>` : ''}<div class="bar2">${like}${acts}</div>${cm ? `<div style="margin-top:8px">${cm}</div>` : ''}${form}</div></article>`;
+  return `<article class="post full">${photos}<div class="pbody"><div class="who"><b>${esc(p.name)}</b><span>${esc(p.at)}</span></div>${p.text ? `<p class="txt">${esc(p.text)}</p>` : ''}${p.link ? `<a class="lnk" href="${esc(p.link)}" target="_blank" rel="noopener noreferrer">${esc(p.link)}</a>` : ''}<div class="bar2">${like}${acts}</div>${cm ? `<div style="margin-top:8px">${cm}</div>` : ''}${form}</div></article>`;
 }
 
+function postHtml(p, b, t) {
+  const mv = t ? `<div class="mv"><button type="button" class="btn tiny gray" data-act="bMove" data-id="${esc(p.id)}" data-d="-1" aria-label="앞으로">◀</button><button type="button" class="btn tiny gray" data-act="bMove" data-id="${esc(p.id)}" data-d="1" aria-label="뒤로">▶</button></div>` : '';
+  const ph = p.photos.length ? `<div class="cph" style="background-image:url('${photoUrl(p.photos[0])}')">${p.photos.length > 1 ? `<span class="more">+${p.photos.length - 1}</span>` : ''}</div>` : '';
+  const txt = p.text || (p.link ? p.link : '');
+  return `<article class="post" data-act="bPost" data-id="${esc(p.id)}" data-pid="${esc(p.id)}" tabindex="0"${t ? ' draggable="true"' : ''} aria-label="${esc(p.name)}님의 글 열기">${mv}<div class="pbody">${ph}<div class="who"><b>${esc(p.name)}</b><span>${esc(p.at)}</span></div>${txt ? `<p class="txt clamp">${esc(txt)}</p>` : ''}</div><div class="cfoot">${b.likes ? `<span>👍 ${fmt(p.likes)}</span>` : ''}${b.comments ? `<span>💬 ${fmt(p.comments.length)}</span>` : ''}</div></article>`;
+}
+function openPostModal(id) {
+  const P = st.posts; if (!P) return;
+  const p = P.posts.find((x) => x.id === id); if (!p) { closeModal(); return; }
+  st.openPost = id;
+  openModal(`<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button type="button" class="btn tiny gray" data-act="close">닫기</button></div>` + postFullHtml(p, P.board, isTeacher()), true);
+}
+function refreshPostModal() { if (st.openPost && !$('#modal').hidden && st.posts) { const sc = $('#sheet').scrollTop; openPostModal(st.openPost); $('#sheet').scrollTop = sc; } }
 /* 글쓰기 창 */
 function shrinkImage(file) {
   return new Promise((resolve, reject) => {
@@ -1281,7 +1308,7 @@ function boardTeacherPanel() {
 }
 async function boardDo(text, path, body, after) {
   const r = await run(text, () => api(path, { method: 'POST', body: body || {} }));
-  if (r) { closeModal(); toast(r.message); await after(); }
+  if (r) { if (!(after === reloadPosts && st.openPost)) closeModal(); toast(r.message); await after(); }
   return r;
 }
 const afterBoards = async () => { await loadBoards(); if (st.boardId) { if (!(st.board.boards || []).some((b) => b.id === st.boardId)) { st.boardId = ''; renderBoard(); } else await reloadPosts(); } };
@@ -1298,6 +1325,7 @@ document.addEventListener('drop', (e) => {
   st.dragId = ''; if (from < 0 || to < 0 || from === to) { renderBoardFull(); return; }
   const [x] = arr.splice(from, 1); arr.splice(to, 0, x); renderBoardFull(); saveOrder();
 });
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches && e.target.matches('#bfull .post')) { e.preventDefault(); ACT.bPost({ id: e.target.dataset.pid }); } });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && st.boardId && $('#modal').hidden) ACT.bBack(); });
 setInterval(async () => {
   if (document.hidden || !st.w || !st.w.submit || st.w.subBusy || !(st.tab === 'work' || (st.tab === 'info' && st.tm.info))) return;
@@ -1309,6 +1337,7 @@ const BOARD_ACT = {
   impRun: () => openModal(`<h3>가져올까요?</h3><p>같은 번호의 학생이 이미 있으면 이름·직업·자리만 갱신하고, 잔액과 비밀번호는 그대로 둬요. 직업·상점·이자율 목록은 파일 내용으로 바뀌어요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="impGo">가져오기</button></div>`),
   impGo: async () => { closeModal(); await impSend(true); },
   bOpen: (d) => openBoard(d.id),
+  bPost: (d) => openPostModal(d.id),
   bBack: () => { st.boardId = ''; st.posts = null; loadBoards(); },
   bMove: (d) => { const a = st.posts.posts, i = a.findIndex((p) => p.id === d.id), j = i + Number(d.d); if (i < 0 || j < 0 || j >= a.length) return; const [x] = a.splice(i, 1); a.splice(j, 0, x); renderBoardFull(); saveOrder(); },
   bWrite: () => composeOpen('new'),
