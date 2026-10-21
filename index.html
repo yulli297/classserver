@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>돼지공주나라</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Malgun Gothic', sans-serif; background: #fdf3f7; color: #43283a; }
+  button { background: #ff6b9a; color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; font-size: 15px; cursor: pointer; }
+  button.sub { background: #b88ca0; }
+  button.tm { background: #fff; color: #c2386a; border: 2px solid #fff; font-weight: bold; }
+  button.tm.on { background: #c2386a; color: #fff; }
+  button:disabled { opacity: .45; cursor: default; }
+  input, textarea, select { padding: 8px; border: 1px solid #e3b5c8; border-radius: 8px; font-size: 15px; font-family: inherit; }
+
+  header { background: #43283a; color: #fff; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 20px; }
+  .chip { background: #ff8fb1; border-radius: 12px; padding: 3px 10px; font-size: 13px; margin-left: 8px; }
+  .hdr-right { display: flex; gap: 8px; align-items: center; }
+
+  .login { max-width: 360px; margin: 60px auto; text-align: center; background: #fff; border-radius: 16px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+  .login input { width: 100%; margin: 6px 0; }
+
+  .board { max-width: 1100px; margin: 16px auto; padding: 0 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 14px; }
+  .banner { background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+  .banner.wide { grid-column: 1 / -1; }
+  .bhead { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; color: #fff; }
+  .bhead h2 { margin: 0; font-size: 18px; }
+  .c-wallet { background: #ff7fa8; } .c-shop { background: #f5a04a; } .c-ledger { background: #7a8cf0; }
+  .bbody { padding: 16px; }
+  .panel { border-top: 3px dashed #f0c4d4; background: #fff7fa; padding: 14px 16px; }
+  .panel h3 { margin: 12px 0 6px; font-size: 16px; }
+  .panel h3:first-child { margin-top: 0; }
+
+  .balance { font-size: 40px; font-weight: bold; color: #e0447c; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+  .item { border: 2px solid #ffe0b8; border-radius: 12px; padding: 12px; text-align: center; }
+  .item b { display: block; margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { padding: 5px; border-bottom: 1px solid #f3d6e1; text-align: center; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+  .plus { color: #1e8e5a; } .minus { color: #d33; }
+  .muted { color: #8a6f7e; font-size: 14px; }
+  .treasury { font-size: 18px; font-weight: bold; color: #4a56c4; }
+  .scroll { max-height: 280px; overflow-y: auto; }
+  .hidden { display: none; }
+  .msg { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #43283a; color: #fff; padding: 10px 20px; border-radius: 20px; display: none; z-index: 9; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐷 돼지공주나라 <span id="roleChip" class="chip hidden"></span></h1>
+  <div class="hdr-right" id="hdrRight"></div>
+</header>
+
+<!-- 로그인 -->
+<div id="loginView" class="login">
+  <div class="row" style="justify-content:center">
+    <button id="tabStudent">학생</button>
+    <button id="tabTeacher" class="sub">선생님</button>
+  </div>
+  <div id="idBox"><input id="loginId" type="number" placeholder="번호"></div>
+  <input id="loginPin" type="password" placeholder="비밀번호 (처음엔 0000)">
+  <button id="loginBtn" style="width:100%;margin-top:8px">들어가기</button>
+</div>
+
+<!-- 공통 화면 (교사·학생 동일) -->
+<div id="mainView" class="board hidden">
+
+  <!-- 💖 내 지갑 -->
+  <section class="banner">
+    <div class="bhead c-wallet">
+      <h2>💖 내 지갑</h2>
+      <button class="tm hidden" id="tm-wallet" onclick="togglePanel('wallet')">교사 모드</button>
+    </div>
+    <div class="bbody" id="walletBody"></div>
+    <div class="panel hidden" id="p-wallet">
+      <h3>행복 지급 / 차감</h3>
+      <div class="row">
+        <input id="adjAmount" type="number" placeholder="금액 (차감은 -)" style="width:150px">
+        <input id="adjMemo" placeholder="사유" style="flex:1;min-width:120px">
+        <button onclick="adjust()">선택한 학생에게 적용</button>
+      </div>
+      <h3>학생 목록 · 직업 지정</h3>
+      <div class="row"><button class="sub" onclick="toggleAll('chkW')">전체 선택/해제</button></div>
+      <div class="scroll"><table id="rosW"></table></div>
+      <h3>학생 처음 등록</h3>
+      <div class="muted">한 줄에 한 명씩 적어요. 위에서부터 1번이고, 비밀번호는 0000이에요.</div>
+      <textarea id="seedNames" rows="3" style="width:100%;margin-top:6px" placeholder="김가온&#10;이나래"></textarea>
+      <button onclick="seed()" style="margin-top:6px">등록</button>
+    </div>
+  </section>
+
+  <!-- 🛒 상점 -->
+  <section class="banner">
+    <div class="bhead c-shop">
+      <h2>🛒 상점</h2>
+      <button class="tm hidden" id="tm-shop" onclick="togglePanel('shop')">교사 모드</button>
+    </div>
+    <div class="bbody"><div id="shop" class="grid"></div></div>
+    <div class="panel hidden" id="p-shop">
+      <h3>상품 추가</h3>
+      <div class="row">
+        <input id="itName" placeholder="상품 이름" style="flex:1;min-width:120px">
+        <input id="itPrice" type="number" placeholder="가격" style="width:90px">
+        <input id="itStock" type="number" placeholder="재고" style="width:90px">
+        <button onclick="addItem()">추가</button>
+      </div>
+      <h3>상품 관리</h3>
+      <table id="itTable"></table>
+    </div>
+  </section>
+
+  <!-- 📒 내역 · 정산 -->
+  <section class="banner wide">
+    <div class="bhead c-ledger">
+      <h2>📒 내역 · 정산</h2>
+      <button class="tm hidden" id="tm-ledger" onclick="togglePanel('ledger')">교사 모드</button>
+    </div>
+    <div class="bbody"><table id="logs"></table></div>
+    <div class="panel hidden" id="p-ledger">
+      <div>국고 잔액: <span class="treasury" id="treasury">-</span> 행복</div>
+
+      <h3>1) 대상 학생 선택</h3>
+      <div class="row"><button class="sub" onclick="toggleAll('chkL')">전체 선택/해제</button></div>
+      <div class="scroll"><table id="rosL"></table></div>
+
+      <div id="salaryBox">
+        <h3>2) 월급 지급 <span class="muted">(소득세 10%를 떼어 국고로, 빚이 있으면 월급에서 자동 상환)</span></h3>
+        <div class="row">
+          <input id="salAmount" type="number" placeholder="월급 금액" style="width:130px">
+          <input id="salMemo" placeholder="메모 (선택)" style="width:150px">
+          <button onclick="settle('salary')">월급 지급</button>
+        </div>
+      </div>
+
+      <h3>3) 월세 · 세금 · 벌금 징수 <span class="muted">(잔액이 부족해도 빚으로 처리, 전액 국고로)</span></h3>
+      <div class="row">
+        <input id="chName" placeholder="항목 (월세/세금/벌금)" value="월세" style="width:150px">
+        <input id="chAmount" type="number" placeholder="금액" value="30" style="width:100px">
+        <button onclick="settle('charge')">징수</button>
+      </div>
+
+      <h3>정산 결과</h3>
+      <div class="scroll"><table id="settleResult"></table></div>
+    </div>
+  </section>
+</div>
+
+<div id="msg" class="msg"></div>
+
+<script>
+let token = localStorage.getItem('pig_token');
+let role = localStorage.getItem('pig_role');
+let loginRole = 'student';
+let me = null;          // 지금 화면에 보이는 학생 (학생 본인 또는 교사가 고른 학생)
+let items = [], roster = [];
+let viewId = '';        // 교사가 미리 보는 학생 번호
+const openPanels = { wallet: false, shop: false, ledger: false };
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function toast(t) { const m = $('msg'); m.textContent = t; m.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => (m.style.display = 'none'), 2400); }
+
+async function api(url, method = 'GET', body) {
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) { logout(); throw new Error(data.error || '다시 로그인해 주세요'); }
+  if (!res.ok) throw new Error(data.error || '오류가 났어요');
+  return data;
+}
+
+// ---------- 권한 ----------
+function perms() {
+  if (role === 'teacher') return { teacher: true, shop: true, tax: true };
+  const jobs = (me && me.jobs) || [];
+  return { teacher: false, shop: jobs.includes('shop'), tax: jobs.includes('tax') };
+}
+
+// ---------- 로그인 ----------
+$('tabStudent').onclick = () => setRole('student');
+$('tabTeacher').onclick = () => setRole('teacher');
+function setRole(r) {
+  loginRole = r;
+  $('idBox').classList.toggle('hidden', r === 'teacher');
+  $('tabStudent').className = r === 'student' ? '' : 'sub';
+  $('tabTeacher').className = r === 'teacher' ? '' : 'sub';
+  $('loginPin').placeholder = r === 'teacher' ? '선생님 비밀번호' : '비밀번호 (처음엔 0000)';
+}
+$('loginBtn').onclick = async () => {
+  try {
+    const r = await api('/api/login', 'POST', { role: loginRole, id: $('loginId').value, pin: $('loginPin').value });
+    token = r.token; role = r.role;
+    localStorage.setItem('pig_token', token); localStorage.setItem('pig_role', role);
+    $('loginPin').value = '';
+    start();
+  } catch (e) { toast(e.message); }
+};
+$('loginPin').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('loginBtn').click(); });
+
+function logout() {
+  token = null; role = null; me = null; viewId = '';
+  localStorage.removeItem('pig_token'); localStorage.removeItem('pig_role');
+  $('mainView').classList.add('hidden');
+  $('loginView').classList.remove('hidden');
+  $('hdrRight').innerHTML = ''; $('roleChip').classList.add('hidden');
+}
+
+async function start() {
+  $('loginView').classList.add('hidden');
+  $('mainView').classList.remove('hidden');
+  const chip = $('roleChip');
+  chip.textContent = role === 'teacher' ? '선생님' : '학생'; chip.classList.remove('hidden');
+  await loadAll();
+}
+
+// ---------- 데이터 불러오기 ----------
+async function loadAll() {
+  try {
+    if (role === 'student') me = await api('/api/me');
+    else me = viewId ? await api('/api/teacher/view/' + viewId) : null;
+    items = await api('/api/shop');
+    const p = perms();
+    roster = p.tax ? await api('/api/roster') : [];
+    renderAll();
+    if (p.tax && openPanels.ledger) loadTreasury();
+  } catch (e) { toast(e.message); }
+}
+async function loadTreasury() {
+  try { $('treasury').textContent = (await api('/api/treasury')).balance; } catch (e) { /* 권한 없으면 무시 */ }
+}
+
+// ---------- 화면 그리기 ----------
+function renderAll() {
+  renderHeader(); renderWallet(); renderShop(); renderLogs(); renderTeacherParts();
+}
+function renderHeader() {
+  let h = '';
+  if (role === 'teacher') {
+    h += `<select id="viewSel" onchange="pickView(this.value)"><option value="">학생 화면 미리보기…</option>` +
+      roster.map((s) => `<option value="${s.id}" ${s.id === viewId ? 'selected' : ''}>${s.id}번 ${esc(s.name)}</option>`).join('') + '</select>';
+  }
+  h += '<button class="sub" onclick="logout()">나가기</button>';
+  $('hdrRight').innerHTML = h;
+}
+async function pickView(id) { viewId = id; await loadAll(); }
+
+function renderWallet() {
+  if (!me) {
+    $('walletBody').innerHTML = '<div class="muted">위쪽에서 학생을 고르면 그 학생의 화면을 그대로 볼 수 있어요.</div>';
+    return;
+  }
+  const jobNames = (me.jobs || []).map((j) => ({ shop: '상점관리', tax: '국세청장' }[j])).filter(Boolean);
+  $('walletBody').innerHTML = `
+    <div>${me.id}번 ${esc(me.name)} ${jobNames.map((j) => `<span class="chip" style="background:#7a8cf0">${j}</span>`).join('')}</div>
+    <div class="balance">${me.balance} 행복</div>
+    ${role === 'student' ? '<button class="sub" onclick="changePin()">비밀번호 바꾸기</button>' : ''}`;
+}
+function renderShop() {
+  $('shop').innerHTML = items.map((i) => `
+    <div class="item"><b>${esc(i.name)}</b>
+      <div>${i.price} 행복</div><div class="muted">남은 수량 ${i.stock}</div>
+      ${role === 'student'
+        ? `<button ${i.stock <= 0 ? 'disabled' : ''} onclick="buy('${i.id}')">${i.stock <= 0 ? '품절' : '구매'}</button>`
+        : '<div class="muted">(미리보기)</div>'}
+    </div>`).join('') || '<div class="muted">상품이 아직 없어요</div>';
+}
+function renderLogs() {
+  if (!me) { $('logs').innerHTML = '<tr><td class="muted">학생을 고르면 그 학생의 최근 내역이 보여요</td></tr>'; return; }
+  $('logs').innerHTML = (me.logs || []).map((l) => `
+    <tr><td>${new Date(l.at).toLocaleDateString('ko-KR')}</td><td>${esc(l.memo)}</td>
+    <td class="${l.amount > 0 ? 'plus' : 'minus'}">${l.amount > 0 ? '+' : ''}${l.amount}</td><td>${l.balanceAfter}</td></tr>`).join('')
+    || '<tr><td class="muted">내역이 아직 없어요</td></tr>';
+}
+
+// 배너별 교사 모드 버튼과 패널
+function renderTeacherParts() {
+  const p = perms();
+  $('tm-wallet').classList.toggle('hidden', !p.teacher);
+  $('tm-shop').classList.toggle('hidden', !p.shop);
+  $('tm-ledger').classList.toggle('hidden', !p.tax);
+  $('salaryBox').classList.toggle('hidden', !p.teacher);
+  for (const k of Object.keys(openPanels)) {
+    const allowed = k === 'wallet' ? p.teacher : k === 'shop' ? p.shop : p.tax;
+    if (!allowed) openPanels[k] = false;
+    $('p-' + k).classList.toggle('hidden', !openPanels[k]);
+    $('tm-' + k).classList.toggle('on', openPanels[k]);
+  }
+  renderRoster('rosW', 'chkW', true);
+  renderRoster('rosL', 'chkL', false);
+  $('itTable').innerHTML = '<tr><th>상품</th><th>가격</th><th>남은 수량</th><th>팔린 수</th><th></th></tr>' +
+    items.map((i) => `<tr><td>${esc(i.name)}</td><td>${i.price}</td><td>${i.stock}</td><td>${i.sold || 0}</td>
+      <td><button class="sub" onclick="restock('${i.id}')">재고 새로 넣기</button>
+      <button class="sub" onclick="delItem('${i.id}')">삭제</button></td></tr>`).join('');
+}
+function togglePanel(k) {
+  openPanels[k] = !openPanels[k];
+  renderTeacherParts();
+  if (k === 'ledger' && openPanels.ledger) loadTreasury();
+}
+function renderRoster(tableId, cls, withJobs) {
+  const checked = new Set([...document.querySelectorAll('.' + cls + ':checked')].map((b) => b.value));
+  const head = '<tr><th></th><th>번호</th><th>이름</th><th>행복</th>' + (withJobs ? '<th>직업</th><th></th>' : '') + '</tr>';
+  $(tableId).innerHTML = head + roster.map((s) => {
+    const job = (s.jobs || [])[0] || '';
+    return `<tr><td><input type="checkbox" class="${cls}" value="${s.id}" ${checked.has(s.id) ? 'checked' : ''}></td>
+      <td>${s.id}</td><td>${esc(s.name)}</td><td class="${s.balance < 0 ? 'minus' : ''}">${s.balance}</td>
+      ${withJobs ? `<td><select onchange="setJob('${s.id}', this.value)">
+        <option value="" ${job === '' ? 'selected' : ''}>없음</option>
+        <option value="shop" ${job === 'shop' ? 'selected' : ''}>상점관리</option>
+        <option value="tax" ${job === 'tax' ? 'selected' : ''}>국세청장</option></select></td>
+      <td><button class="sub" onclick="resetPin('${s.id}')">비번 초기화</button></td>` : ''}</tr>`;
+  }).join('');
+}
+function toggleAll(cls) {
+  const boxes = [...document.querySelectorAll('.' + cls)];
+  const all = boxes.every((b) => b.checked);
+  boxes.forEach((b) => (b.checked = !all));
+}
+const checkedIds = (cls) => [...document.querySelectorAll('.' + cls + ':checked')].map((b) => b.value);
+
+// ---------- 학생 동작 ----------
+async function buy(id) {
+  const item = items.find((i) => i.id === id);
+  if (!item) return;
+  if (!confirm(`${item.name} (${item.price} 행복)을 살까요?`)) return;
+  const prev = { balance: me.balance, stock: item.stock };
+  me.balance -= item.price; item.stock -= 1; renderWallet(); renderShop(); // 먼저 화면에 반영
+  try {
+    const r = await api('/api/buy', 'POST', { itemId: id });
+    me.balance = r.balance; item.stock = r.stock; renderWallet(); renderShop();
+    toast('구매 완료!');
+    loadAll();
+  } catch (e) {
+    me.balance = prev.balance; item.stock = prev.stock; renderWallet(); renderShop();
+    toast(e.message);
+  }
+}
+async function changePin() {
+  const oldPin = prompt('현재 비밀번호'); if (oldPin === null) return;
+  const newPin = prompt('새 비밀번호 (4자리 이상)'); if (newPin === null) return;
+  try { await api('/api/pin', 'POST', { oldPin, newPin }); toast('바뀌었어요'); } catch (e) { toast(e.message); }
+}
+
+// ---------- 교사 모드 동작 ----------
+async function adjust() {
+  try {
+    await api('/api/teacher/adjust', 'POST', { ids: checkedIds('chkW'), amount: $('adjAmount').value, memo: $('adjMemo').value });
+    toast('적용했어요'); loadAll();
+  } catch (e) { toast(e.message); }
+}
+async function setJob(id, job) {
+  try { await api('/api/teacher/jobs', 'POST', { id, jobs: job ? [job] : [] }); toast('직업을 바꿨어요'); loadAll(); } catch (e) { toast(e.message); }
+}
+async function resetPin(id) {
+  if (!confirm(id + '번 비밀번호를 0000으로 되돌릴까요?')) return;
+  try { await api('/api/teacher/reset-pin', 'POST', { id }); toast('초기화했어요'); } catch (e) { toast(e.message); }
+}
+async function seed() {
+  try { const r = await api('/api/teacher/seed', 'POST', { names: $('seedNames').value.split('\n') }); toast(r.created + '명 등록'); $('seedNames').value = ''; loadAll(); } catch (e) { toast(e.message); }
+}
+async function addItem() {
+  try {
+    await api('/api/shop/item', 'POST', { name: $('itName').value, price: $('itPrice').value, stock: $('itStock').value });
+    $('itName').value = $('itPrice').value = $('itStock').value = '';
+    loadAll();
+  } catch (e) { toast(e.message); }
+}
+async function restock(id) {
+  const item = items.find((i) => i.id === id);
+  const n = prompt('새로 넣을 재고 수량 (팔린 수는 0으로 초기화돼요)'); if (n === null) return;
+  try { await api('/api/shop/item', 'POST', { id, name: item.name, price: item.price, stock: n }); loadAll(); } catch (e) { toast(e.message); }
+}
+async function delItem(id) {
+  if (!confirm('삭제할까요?')) return;
+  try { await api('/api/shop/item/' + id, 'DELETE'); loadAll(); } catch (e) { toast(e.message); }
+}
+
+// ---------- 정산 ----------
+async function settle(kind) {
+  const ids = checkedIds('chkL');
+  if (!ids.length) return toast('대상 학생을 선택해 주세요');
+  const body = kind === 'salary'
+    ? { ids, amount: $('salAmount').value, memo: $('salMemo').value }
+    : { ids, amount: $('chAmount').value, memo: $('chName').value };
+  const label = kind === 'salary' ? `월급 ${body.amount}` : `${body.memo || '세금'} ${body.amount}`;
+  if (!confirm(`${ids.length}명에게 ${label}을(를) 적용할까요?`)) return;
+  try {
+    const r = await api('/api/settle/' + kind, 'POST', body);
+    $('treasury').textContent = r.treasury;
+    $('settleResult').innerHTML = '<tr><th>번호</th><th>이름</th><th>전</th><th>변화</th><th>후</th></tr>' +
+      r.results.map((x) => `<tr><td>${x.id}</td><td>${esc(x.name)}</td><td>${x.before}</td>
+        <td class="${x.delta > 0 ? 'plus' : 'minus'}">${x.delta > 0 ? '+' : ''}${x.delta}</td>
+        <td class="${x.after < 0 ? 'minus' : ''}">${x.after}</td></tr>`).join('');
+    toast('정산했어요');
+    loadAll();
+  } catch (e) { toast(e.message); }
+}
+
+if (token) start();
+</script>
+</body>
+</html>
