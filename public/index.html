@@ -112,6 +112,31 @@ button.stat { cursor: pointer; }
 .bar { background: var(--bg); border-radius: 999px; height: 14px; overflow: hidden; margin: 8px 0; }
 .bar > i { display: block; height: 100%; background: linear-gradient(90deg, #3182F6, #1B64DA); border-radius: 999px; }
 
+/* ---------- 우리반 보드 ---------- */
+.post { background: #F9FAFB; border-radius: 20px; padding: 18px; margin-bottom: 14px; }
+.post .who { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; margin-bottom: 8px; }
+.post .who b { font-size: 15px; }
+.post .who span { font-size: 12px; color: var(--sub); }
+.post .txt { white-space: pre-wrap; word-break: break-word; font-size: 15px; line-height: 1.6; margin: 0 0 10px; }
+.post .lnk { display: block; font-size: 14px; color: var(--blue-d); word-break: break-all; margin-bottom: 10px; }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.pgrid.one { grid-template-columns: minmax(0, 360px); }
+.pgrid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 12px; cursor: zoom-in; background: var(--line); display: block; }
+.pgrid.one img { aspect-ratio: auto; max-height: 360px; object-fit: contain; background: transparent; }
+.post .bar2 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+.like { height: 40px; padding: 0 14px; border-radius: 999px; border: 1.5px solid var(--line); background: #fff; font-size: 14px; font-weight: 700; color: #4E5968; cursor: pointer; }
+.like.on { background: var(--blue-s); border-color: var(--blue); color: var(--blue-d); }
+.cmt { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.cmt b { margin-right: 6px; }
+.cmt small { color: var(--sub); margin-left: 6px; }
+.cmtform { display: flex; gap: 8px; margin-top: 8px; }
+.cmtform input { flex: 1; min-width: 0; height: 44px; border: 1.5px solid var(--line); border-radius: 12px; padding: 0 12px; font-family: inherit; font-size: 15px; background: #fff; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.thumbs div { position: relative; }
+.thumbs img { width: 84px; height: 84px; object-fit: cover; border-radius: 10px; display: block; }
+.thumbs button { position: absolute; top: -6px; right: -6px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; cursor: pointer; font-size: 14px; line-height: 1; }
+.bcard { text-align: left; border: 0; cursor: pointer; font-family: inherit; color: inherit; }
+
 /* ---------- 교사 모드 ---------- */
 .tpanel { margin-top: 30px; border: 2px dashed #B0B8C1; border-radius: 22px; padding: 24px; background: #fff; }
 .tpanel .lbl { display: inline-block; font-size: 12px; font-weight: 700; color: #fff; background: var(--ink); border-radius: 6px; padding: 3px 8px; margin-bottom: 12px; }
@@ -237,7 +262,7 @@ const TABS = [
 const st = {
   token: null, role: null, perms: [], myId: '', myName: '', asId: '',
   tab: 'info', info: null, history: null, shop: null, shopTab: '세금', groups: null, bank: null, jobs: null,
-  tm: { info: false, shop: false, bank: false, jobs: false }, sub: { info: 'students', shop: 'items' },
+  board: null, boardId: '', posts: null, tm: { info: false, shop: false, bank: false, jobs: false, board: false }, sub: { info: 'students', shop: 'items' },
   adm: { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null },
   sel: new Set(), forms: {},
 };
@@ -320,7 +345,7 @@ $('#lform').onsubmit = async (e) => {
 function logout() {
   st.token = null; saveToken(); st.role = null; st.info = null; st.shop = null; st.groups = null; st.history = null; st.bank = null; st.jobs = null;
   st.adm = { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null };
-  st.tm = { info: false, shop: false, bank: false, jobs: false }; st.tab = 'info';
+  st.tm = { info: false, shop: false, bank: false, jobs: false, board: false }; st.tab = 'info'; st.board = null; st.boardId = ''; st.posts = null;
   closeModal(); $('#app').hidden = true; $('#login').hidden = false; $('#lpin').value = '';
 }
 $('#logout').onclick = logout;
@@ -379,10 +404,11 @@ function goTab(id, first) {
     if (id === 'info' && !st.info) loadInfo();
     if (id === 'bank' && !st.bank) loadBank();
     if (id === 'jobs' && !st.jobs) loadJobs();
+    if (id === 'board' && !st.board) loadBoards();
     if (window.innerWidth <= 760) window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 }
-function renderAll() { renderInfo(); renderBank(); renderShop(); renderJobs(); renderPlaceholders(); }
+function renderAll() { renderInfo(); renderBank(); renderShop(); renderJobs(); renderBoard(); renderPlaceholders(); }
 
 function leafHead(eyebrow, titleHtml, tmKey, tmAllowed) {
   const on = st.tm[tmKey];
@@ -679,7 +705,6 @@ function groupJoin(id) {
 function renderPlaceholders() {
   const info = {
     work: ['직업 활동', '맡은 일을<br>해 볼 시간이에요', '이번 서버 버전에는 넣지 않았어요. (오늘의 업무, 벌금, 제출 확인 등은 기존 앱 그대로 쓰고 있어요)'],
-    board: ['우리반 보드', '우리 반 이야기를<br>함께 남겨요', '게시글·사진·댓글·추천이 다음 단계에서 이 자리에 들어와요.'],
   };
   Object.keys(info).forEach((k) => {
     const el = $('#lf-' + k); if (!el) return;
@@ -764,7 +789,7 @@ function registerPanel(a) {
 const SET_LABELS = [
   ['화폐단위', '화폐 이름', ''], ['나라이름', '나라 이름', ''], ['월세', '월세', '자리를 사지 않은 학생이 내는 금액'], ['소득세율', '소득세율 (%)', '월급에서 원천징수'],
   ['세금초기화일', '세금 주기 시작일 (2~28)', '이 날 새 세금 주기가 시작돼요'], ['빚허용', '세금 빚 허용 (Y/N)', 'Y면 잔액이 모자라도 세금은 빚으로 납부'], ['빚이면구매금지', '빚이면 구매 금지 (Y/N)', 'Y면 빚이 있으면 간식·쿠폰 불가'],
-  ['신용시작점수', '신용 시작 점수', ''], ['신용등급컷', '신용 등급 기준', '1/2/3/4등급 최소 점수'], ['수학등급컷', '수학 등급 기준', '1/2/3/4등급 최소 점수'], ['수학최대점수', '수학 최대 점수', ''], ['공동구매최소금액', '공동구매 최소 금액', ''], ['예금최소금액', '예금 최소 금액', ''], ['예금최대일수', '예금 최대 기간 (일)', '이 일수 이하 상품만 보여요'],
+  ['신용시작점수', '신용 시작 점수', ''], ['신용등급컷', '신용 등급 기준', '1/2/3/4등급 최소 점수'], ['수학등급컷', '수학 등급 기준', '1/2/3/4등급 최소 점수'], ['수학최대점수', '수학 최대 점수', ''], ['공동구매최소금액', '공동구매 최소 금액', ''], ['예금최소금액', '예금 최소 금액', ''], ['예금최대일수', '예금 최대 기간 (일)', '이 일수 이하 상품만 보여요'], ['보드최대사진', '보드 글당 사진 수', '한 글에 붙일 수 있는 사진 장수'], ['글당최대댓글', '보드 글당 댓글 수', ''],
 ];
 function settingsPanel() {
   const s = st.adm.settings;
@@ -862,10 +887,10 @@ function fieldsOf(tr) { const o = {}; tr.querySelectorAll('[data-f]').forEach((e
 const ACT = {
   tab: (d) => goTab(d.id),
   close: () => closeModal(),
-  reload: () => { st.shop = null; st.groups = null; st.bank = null; loadInfo(); if (st.tab === 'shop') loadShop(); if (st.tab === 'bank') loadBank(); toast('새로 불러왔어요'); },
+  reload: () => { st.board = null; if (st.tab === 'board') loadBoards(); st.shop = null; st.groups = null; st.bank = null; loadInfo(); if (st.tab === 'shop') loadShop(); if (st.tab === 'bank') loadBank(); toast('새로 불러왔어요'); },
   tm: (d) => {
     st.tm[d.id] = !st.tm[d.id];
-    if (d.id === 'info') renderInfo(); else if (d.id === 'bank') renderBank(); else if (d.id === 'jobs') renderJobs(); else renderShop();
+    if (d.id === 'info') renderInfo(); else if (d.id === 'bank') renderBank(); else if (d.id === 'jobs') renderJobs(); else if (d.id === 'board') renderBoard(); else renderShop();
   },
   sub: (d) => {
     st.sub[d.key] = d.id;
@@ -1063,6 +1088,173 @@ const ACT = {
     if (r) { toast(r.message); st.groups = null; loadAdmGroups(); loadAdmStudents(false); }
   },
 };
+/* ====================================================================
+   5. 우리반 보드
+==================================================================== */
+async function loadBoards() {
+  try { st.board = await api('/api/board'); } catch (e) { toast(e.message, true); }
+  renderBoard();
+}
+async function openBoard(id) {
+  st.boardId = id; st.posts = null; renderBoard();
+  try { st.posts = await api('/api/board/' + encodeURIComponent(id) + '/posts'); } catch (e) { toast(e.message, true); st.boardId = ''; }
+  renderBoard();
+}
+async function reloadPosts() {
+  if (!st.boardId) return;
+  try { st.posts = await api('/api/board/' + encodeURIComponent(st.boardId) + '/posts'); } catch (e) { toast(e.message, true); }
+  renderBoard();
+}
+const photoUrl = (id) => '/api/board/photo/' + encodeURIComponent(id) + '?t=' + encodeURIComponent(st.token || '');
+function renderBoard() {
+  const el = $('#lf-board'); if (!el) return;
+  let body = leafHead('우리반 보드', '우리 반 이야기를<br>함께 남겨요', 'board', isTeacher());
+  if (!st.board) body += '<div class="empty">불러오는 중이에요…</div>';
+  else if (!st.boardId) body += boardListHtml();
+  else body += boardViewHtml();
+  if (st.tm.board && isTeacher() && st.board) body += boardTeacherPanel();
+  el.innerHTML = body;
+}
+function boardListHtml() {
+  const list = st.board.boards;
+  if (!list.length) return `<div class="empty">아직 열린 보드가 없어요.${isTeacher() ? '<br>교사 모드에서 보드를 만들어 보세요.' : ''}</div>`;
+  return `<div class="grid">` + list.map((b) => `<button type="button" class="card bcard" data-act="bOpen" data-id="${esc(b.id)}">${b.active ? '' : '<span class="badge gray">학생에게 숨김</span>'}<div class="nm">${esc(b.name)}</div><div class="ds">${esc(b.desc)}</div><div class="st">글 ${fmt(b.count)}개</div></button>`).join('') + `</div>`;
+}
+function boardViewHtml() {
+  const back = `<div class="row-btn" style="justify-content:flex-start;margin:0 0 14px"><button type="button" class="btn tiny gray" data-act="bBack">← 보드 목록</button></div>`;
+  const P = st.posts;
+  if (!P) return back + '<div class="empty">불러오는 중이에요…</div>';
+  const b = P.board, t = isTeacher();
+  const write = t ? `<button type="button" class="btn small" data-act="bWrite">선생님으로 글쓰기</button>` : (b.active ? `<button type="button" class="btn small" data-act="bWrite">글쓰기</button>` : '');
+  const head = `<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px"><div><h2 style="margin:0 0 4px">${esc(b.name)}</h2><p class="note" style="margin:0">${esc(b.desc)}</p></div>${write}</div>`;
+  return back + head + (P.posts.length ? P.posts.map((p) => postHtml(p, b, t)).join('') : '<div class="empty">아직 글이 없어요. 첫 글을 남겨 보세요!</div>');
+}
+function postHtml(p, b, t) {
+  const photos = p.photos.length ? `<div class="pgrid${p.photos.length === 1 ? ' one' : ''}">` + p.photos.map((id, i) => `<img src="${photoUrl(id)}" loading="lazy" alt="${esc(p.name)}님이 올린 사진 ${i + 1}" data-act="bPhoto" data-id="${esc(id)}">`).join('') + `</div>` : '';
+  const cm = p.comments.map((c) => `<div class="cmt"><span><b>${esc(c.name)}</b>${esc(c.text)}<small>${esc(c.at)}</small></span>${t ? `<button type="button" class="btn tiny red" data-act="bCmtDel" data-id="${esc(c.id)}">삭제</button>` : ''}</div>`).join('');
+  const like = b.likes ? `<button type="button" class="like ${p.liked ? 'on' : ''}" data-act="bLike" data-id="${esc(p.id)}" ${t ? 'disabled' : ''} aria-pressed="${p.liked}">👍 추천 ${fmt(p.likes)}</button>` : '';
+  const acts = (p.mine ? `<button type="button" class="btn tiny gray" data-act="bEdit" data-id="${esc(p.id)}">수정</button><button type="button" class="btn tiny red" data-act="bDel" data-id="${esc(p.id)}">삭제</button>` : '') +
+    (t ? `<button type="button" class="btn tiny red" data-act="bAdmDel" data-id="${esc(p.id)}">글 숨기기</button>` : '');
+  const form = b.comments && !t && b.active ? `<div class="cmtform"><input id="cm_${esc(p.id)}" type="text" maxlength="300" placeholder="댓글을 남겨요" aria-label="댓글"><button type="button" class="btn tiny" data-act="bCmt" data-id="${esc(p.id)}">달기</button></div>` : '';
+  return `<article class="post"><div class="who"><b>${esc(p.name)}</b><span>${esc(p.at)}</span></div>${p.text ? `<p class="txt">${esc(p.text)}</p>` : ''}${p.link ? `<a class="lnk" href="${esc(p.link)}" target="_blank" rel="noopener noreferrer">${esc(p.link)}</a>` : ''}${photos}<div class="bar2">${like}${acts}</div>${cm ? `<div style="margin-top:10px">${cm}</div>` : ''}${form}</article>`;
+}
+
+/* 글쓰기 창 */
+function shrinkImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const sc = Math.min(1, 1000 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(img.width * sc)); c.height = Math.max(1, Math.round(img.height * sc));
+      const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height);
+      let q = 0.8, d = c.toDataURL('image/jpeg', q);
+      while (d.length > 480000 && q > 0.4) { q -= 0.1; d = c.toDataURL('image/jpeg', q); }
+      URL.revokeObjectURL(url);
+      if (d.length > 690000) reject(new Error('사진이 너무 커요')); else resolve(d);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('사진을 읽을 수 없어요')); };
+    img.src = url;
+  });
+}
+function composeOpen(mode, post) {
+  st.forms.cp = { mode, postId: post ? post.id : '', text: post ? post.text : '', link: post ? post.link : '', keep: post ? post.photos.slice() : [], news: [] };
+  composeModal();
+}
+function composeSave() { const c = st.forms.cp; if (!c) return; if (document.getElementById('cpText')) { c.text = val('cpText'); c.link = val('cpLink'); } }
+function composeModal() {
+  const c = st.forms.cp, max = st.board.maxPhotos, n = c.keep.length + c.news.length;
+  const thumbs = c.keep.map((id, i) => `<div><img src="${photoUrl(id)}" alt="올린 사진 ${i + 1}"><button type="button" data-act="cpKeepDel" data-id="${esc(id)}" aria-label="사진 빼기">×</button></div>`).join('') +
+    c.news.map((p, i) => `<div><img src="${p}" alt="새 사진 ${i + 1}"><button type="button" data-act="cpNewDel" data-id="${i}" aria-label="사진 빼기">×</button></div>`).join('');
+  openModal(`<h3>${c.mode === 'edit' ? '글 고치기' : isTeacher() ? '선생님 글쓰기' : '글쓰기'}</h3>
+    <div class="field"><label for="cpText">내용 (1000자까지)</label><textarea id="cpText" maxlength="1000" placeholder="우리 반 친구들에게 하고 싶은 말을 적어요">${esc(c.text)}</textarea></div>
+    <div class="field" style="margin-top:10px"><label for="cpLink">링크 (유튜브 등, 없으면 비워 둬요)</label><input id="cpLink" type="url" placeholder="https://" value="${esc(c.link)}"></div>
+    <div style="margin-top:12px"><span style="font-size:13px;font-weight:500;color:#4E5968">사진 ${n}/${max}장</span>
+    <div class="thumbs">${thumbs}</div>
+    ${n < max ? `<input id="cpFile" type="file" accept="image/*" multiple hidden><button type="button" class="btn tiny gray" data-act="cpPick">사진 고르기</button>` : ''}</div>
+    <div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="cpGo">${c.mode === 'edit' ? '고치기' : '올리기'}</button></div>`, true);
+}
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 'cpFile') return;
+  const c = st.forms.cp; if (!c) return;
+  composeSave();
+  const files = [...e.target.files], room = st.board.maxPhotos - c.keep.length - c.news.length;
+  if (files.length > room) toast(`사진은 ${room}장 더 붙일 수 있어요`, true);
+  busy(true, '사진을 줄이는 중이에요');
+  try { for (const f of files.slice(0, Math.max(0, room))) c.news.push(await shrinkImage(f)); }
+  catch (err) { toast(err.message, true); }
+  finally { busy(false); }
+  composeModal();
+});
+
+/* 교사 모드 */
+function boardTeacherPanel() {
+  const rows = st.board.boards.map((b) => `<div class="mrow"><div class="t"><b>${esc(b.name)}</b> ${b.active ? '' : '<span class="badge gray">숨김</span>'}<i>${esc(b.desc)} · 글 ${fmt(b.count)}개</i></div><div class="acts">
+    <button type="button" class="btn tiny gray" data-act="bdEdit" data-id="${esc(b.id)}">이름·설명</button>
+    <button type="button" class="btn tiny gray" data-act="bdTog" data-id="${esc(b.id)}" data-k="active">${b.active ? '숨기기' : '보이기'}</button>
+    <button type="button" class="btn tiny gray" data-act="bdTog" data-id="${esc(b.id)}" data-k="comments">댓글 ${b.comments ? '끄기' : '켜기'}</button>
+    <button type="button" class="btn tiny gray" data-act="bdTog" data-id="${esc(b.id)}" data-k="likes">추천 ${b.likes ? '끄기' : '켜기'}</button>
+    <button type="button" class="btn tiny red" data-act="bdDel" data-id="${esc(b.id)}">삭제</button></div></div>`).join('');
+  return `<section class="tpanel" aria-label="교사 모드"><span class="lbl">교사 모드</span><h2>보드 관리</h2>
+    <p class="note">보드를 열어 글·댓글 옆의 삭제 버튼으로 정리할 수 있어요. 학생 글은 학생이 직접 고치거나 지워요.</p>
+    ${rows || '<p class="note">아직 보드가 없어요.</p>'}
+    <h3 style="margin-top:20px">새 보드 만들기</h3><div class="form">
+    <div class="field"><label for="bdName">보드 이름</label><input id="bdName" type="text" maxlength="30" placeholder="자유 게시판"></div>
+    <div class="field" style="flex-grow:2"><label for="bdDesc">설명</label><input id="bdDesc" type="text" maxlength="80" placeholder="하고 싶은 이야기를 자유롭게 남겨요"></div></div>
+    <label style="font-size:14px;margin-right:16px"><input type="checkbox" id="bdCm" checked> 댓글 허용</label><label style="font-size:14px"><input type="checkbox" id="bdLk" checked> 추천 허용</label>
+    <div style="margin-top:12px"><button type="button" class="btn" data-act="bdNew">보드 만들기</button></div></section>`;
+}
+async function boardDo(text, path, body, after) {
+  const r = await run(text, () => api(path, { method: 'POST', body: body || {} }));
+  if (r) { closeModal(); toast(r.message); await after(); }
+  return r;
+}
+const afterBoards = async () => { await loadBoards(); if (st.boardId) { if (!(st.board.boards || []).some((b) => b.id === st.boardId)) { st.boardId = ''; renderBoard(); } else await reloadPosts(); } };
+const BOARD_ACT = {
+  bOpen: (d) => openBoard(d.id),
+  bBack: () => { st.boardId = ''; st.posts = null; loadBoards(); },
+  bWrite: () => composeOpen('new'),
+  bEdit: (d) => composeOpen('edit', st.posts.posts.find((p) => p.id === d.id)),
+  cpPick: () => document.getElementById('cpFile').click(),
+  cpKeepDel: (d) => { composeSave(); st.forms.cp.keep = st.forms.cp.keep.filter((id) => id !== d.id); composeModal(); },
+  cpNewDel: (d) => { composeSave(); st.forms.cp.news.splice(Number(d.id), 1); composeModal(); },
+  cpGo: async () => {
+    composeSave(); const c = st.forms.cp;
+    const body = { text: c.text, link: c.link, photos: c.news.map((data) => ({ data })) };
+    let path;
+    if (c.mode === 'edit') { path = `/api/board/post/${c.postId}/edit`; body.keep = c.keep; }
+    else if (isTeacher()) path = `/api/admin/board/${st.boardId}/post`;
+    else { path = '/api/board/post'; body.boardId = st.boardId; }
+    await boardDo('올리는 중이에요', path, body, afterBoards);
+  },
+  bDel: (d) => openModal(`<h3>이 글을 지울까요?</h3><p>지운 글은 보드에서 사라져요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="bDelGo" data-id="${esc(d.id)}">지우기</button></div>`),
+  bDelGo: (d) => boardDo('지우는 중이에요', `/api/board/post/${d.id}/delete`, {}, afterBoards),
+  bAdmDel: (d) => openModal(`<h3>이 글을 숨길까요?</h3><p>학생들에게 보이지 않게 돼요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="bAdmDelGo" data-id="${esc(d.id)}">숨기기</button></div>`),
+  bAdmDelGo: (d) => boardDo('처리하는 중이에요', `/api/admin/board/post/${d.id}/delete`, {}, afterBoards),
+  bCmtDel: (d) => boardDo('처리하는 중이에요', `/api/admin/board/comment/${d.id}/delete`, {}, reloadPosts),
+  bLike: (d) => boardDo('', '/api/board/like', { postId: d.id }, reloadPosts),
+  bCmt: async (d) => {
+    const text = val('cm_' + d.id).trim(); if (!text) return toast('댓글을 적어주세요', true);
+    await boardDo('달고 있어요', '/api/board/comment', { postId: d.id, text }, reloadPosts);
+  },
+  bPhoto: (d) => openModal(`<img src="${photoUrl(d.id)}" alt="사진 크게 보기" style="width:100%;border-radius:12px;display:block"><div class="row-btn"><button class="btn gray" data-act="close">닫기</button></div>`, true),
+  bdNew: async () => {
+    const name = val('bdName').trim(); if (!name) return toast('보드 이름을 적어주세요', true);
+    await boardDo('만드는 중이에요', '/api/admin/board', { name, desc: val('bdDesc'), comments: document.getElementById('bdCm').checked, likes: document.getElementById('bdLk').checked }, loadBoards);
+  },
+  bdEdit: (d) => {
+    const b = st.board.boards.find((x) => x.id === d.id);
+    openModal(`<h3>보드 이름·설명</h3><div class="field"><label for="bdeName">이름</label><input id="bdeName" type="text" maxlength="30" value="${esc(b.name)}"></div><div class="field" style="margin-top:10px"><label for="bdeDesc">설명</label><input id="bdeDesc" type="text" maxlength="80" value="${esc(b.desc)}"></div><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="bdeGo" data-id="${esc(d.id)}">저장</button></div>`);
+  },
+  bdeGo: (d) => boardDo('저장하는 중이에요', `/api/admin/board/${d.id}`, { name: val('bdeName'), desc: val('bdeDesc') }, afterBoards),
+  bdTog: (d) => { const b = st.board.boards.find((x) => x.id === d.id); boardDo('저장하는 중이에요', `/api/admin/board/${d.id}`, { [d.k]: !b[d.k] }, afterBoards); },
+  bdDel: (d) => {
+    const b = st.board.boards.find((x) => x.id === d.id);
+    openModal(`<h3>"${esc(b.name)}" 보드를 지울까요?</h3><p>글 ${fmt(b.count)}개와 사진·댓글·추천이 모두 사라지고 되돌릴 수 없어요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="bdDelGo" data-id="${esc(d.id)}">지우기</button></div>`);
+  },
+  bdDelGo: (d) => boardDo('지우는 중이에요', `/api/admin/board/${d.id}/delete`, {}, afterBoards),
+};
+Object.assign(ACT, BOARD_ACT);
+
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]');
   if (!b || b.disabled) return;
