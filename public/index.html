@@ -862,7 +862,7 @@ function registerPanel(a) {
 const SET_LABELS = [
   ['화폐단위', '화폐 이름', ''], ['나라이름', '나라 이름', ''], ['월세', '월세', '자리를 사지 않은 학생이 내는 금액'], ['소득세율', '소득세율 (%)', '월급에서 원천징수'],
   ['세금초기화일', '세금 주기 시작일 (2~28)', '이 날 새 세금 주기가 시작돼요'], ['빚허용', '세금 빚 허용 (Y/N)', 'Y면 잔액이 모자라도 세금은 빚으로 납부'], ['빚이면구매금지', '빚이면 구매 금지 (Y/N)', 'Y면 빚이 있으면 간식·쿠폰 불가'],
-  ['신용시작점수', '신용 시작 점수', ''], ['신용등급컷', '신용 등급 기준', '1/2/3/4등급 최소 점수'], ['수학등급컷', '수학 등급 기준', '1/2/3/4등급 최소 점수'], ['수학최대점수', '수학 최대 점수', ''], ['공동구매최소금액', '공동구매 최소 금액', ''], ['예금최소금액', '예금 최소 금액', ''], ['예금최대일수', '예금 최대 기간 (일)', '이 일수 이하 상품만 보여요'], ['보드최대사진', '보드 글당 사진 수', '한 글에 붙일 수 있는 사진 장수'], ['글당최대댓글', '보드 글당 댓글 수', ''], ['지각벌금', '지각 벌금', '경찰이 지각에 매기는 금액'], ['일일벌금건수', '경찰 하루 벌금 신청 횟수', ''], ['과제최대개수', '진행 중인 과제 최대 개수', '학생 화면에 한 번에 보이는 과제 수'], ['벌금최대금액', '벌금 한 번 최대 금액', ''], ['통로위치', '자리표 통로 위치', '예: 2,4 → 2칸·4칸 뒤에 통로'],
+  ['신용시작점수', '신용 시작 점수', ''], ['신용등급컷', '신용 등급 기준', '1/2/3/4등급 최소 점수'], ['수학등급컷', '수학 등급 기준', '1/2/3/4등급 최소 점수'], ['수학최대점수', '수학 최대 점수', ''], ['공동구매최소금액', '공동구매 최소 금액', ''], ['예금최소금액', '예금 최소 금액', ''], ['예금최대일수', '예금 최대 기간 (일)', '이 일수 이하 상품만 보여요'], ['보드최대사진', '보드 글당 사진 수', '한 글에 붙일 수 있는 사진 장수'], ['글당최대댓글', '보드 글당 댓글 수', ''], ['지각벌금', '지각 벌금', '경찰이 지각에 매기는 금액'], ['일일벌금건수', '경찰 하루 벌금 신청 횟수', ''], ['과제최대개수', '진행 중인 과제 최대 개수', '학생 화면에 한 번에 보이는 과제 수'], ['과제미제출감점', '감점 과제 미제출 시 깎는 점수', '“미제출 감점”을 켠 과제에만 적용돼요'], ['벌금최대금액', '벌금 한 번 최대 금액', ''], ['통로위치', '자리표 통로 위치', '예: 2,4 → 2칸·4칸 뒤에 통로'],
 ];
 function settingsPanel() {
   const s = st.adm.settings;
@@ -1494,7 +1494,7 @@ function renderWork() {
     if (j.reportable) body += tool('한 일 보고하기', reportHtml());
     if (P.includes('자리관리')) body += tool('자리 관리', seatsHtml());
     if (P.includes('국고관리')) body += tool('국고 현황', treasuryWorkHtml());
-    if (P.includes('제출승인')) body += tool('과제 체크', asgPanelHtml(isTeacher())) + tool('과제 없이 바로 체크', submitHtml(false));
+    if (P.includes('제출승인')) body += tool('과제 체크', asgPanelHtml(isTeacher()));
     if (P.includes('신용관리')) body += tool('신용등급 현황', creditHtml());
     const jump = [];
     if (P.includes('은행관리')) jump.push(['bank', '은행 관리 열기']);
@@ -1601,7 +1601,7 @@ function asgMineHtml() {
   const a = st.w.asgMine; if (!a || !a.length) return '';
   const preview = isTeacher();
   return `<div class="list"><h2>📋 오늘의 과제</h2><p class="note">다 한 과제는 [다했어요]를 눌러 주세요. 통계청 친구가 확인하고 선생님께 보내면 목록에서 사라져요.</p>` +
-    a.map((g) => `<div class="mrow"><div class="t"><b>${esc(g.title)}</b><i>${g.desc ? esc(g.desc) + ' · ' : ''}${esc(g.day)}${g.done ? ' · ' + esc(g.doneAt) + ' 완료' : ''}</i></div><div class="acts"><button type="button" class="btn small ${g.done ? '' : 'sec'}" data-act="asgDone" data-id="${esc(g.id)}" data-on="${g.done ? '0' : '1'}" ${preview ? 'disabled' : ''} aria-pressed="${g.done}">${g.done ? '✓ 다했어요' : '다했어요'}</button></div></div>`).join('') + `</div>`;
+    a.map((g) => `<div class="mrow"><div class="t"><b>${esc(g.title)}</b><i>${g.desc ? esc(g.desc) + ' · ' : ''}${g.penalty ? '미제출하면 신용점수가 깎여요 · ' : ''}${esc(g.day)}${g.done ? ' · ' + esc(g.doneAt) + ' 완료' : ''}</i></div><div class="acts"><button type="button" class="btn small ${g.done ? '' : 'sec'}" data-act="asgDone" data-id="${esc(g.id)}" data-on="${g.done ? '0' : '1'}" ${preview ? 'disabled' : ''} aria-pressed="${g.done}">${g.done ? '✓ 다했어요' : '다했어요'}</button></div></div>`).join('') + `</div>`;
 }
 function asgBoardHtml(teacher) {
   const v = st.w.asgBoard;
@@ -1613,20 +1613,20 @@ function asgBoardHtml(teacher) {
   const end = !can ? '<p class="note">이미 선생님께 보낸 과제라 더 고칠 수 없어요.</p>' : teacher
     ? `${a.status === '검토대기' ? '<button type="button" class="btn small gray" data-act="asgReturn">통계청에 돌려보내기</button>' : ''}<button type="button" class="btn small" data-act="asgSaveAsk">최종 저장하고 마감하기</button>`
     : '<button type="button" class="btn small" data-act="asgSend">선생님께 보내기</button><p class="note">보내면 친구들 화면에서 이 과제가 사라지고, 더 고칠 수 없어요.</p>';
-  return `<div class="row-btn" style="justify-content:flex-start;align-items:center;margin:0 0 8px"><button type="button" class="btn tiny gray" data-act="asgBack">↩ 과제 목록</button><b style="font-size:16px">${esc(a.title)}</b><span class="badge ${a.status === '검토대기' ? 'warn' : a.status === '마감' ? 'gray' : 'green'}">${esc(a.status)}</span>${v.by ? `<span class="note" style="margin:0 0 0 auto">최근 수정: ${esc(v.by)}</span>` : ''}</div>
+  return `<div class="row-btn" style="justify-content:flex-start;align-items:center;margin:0 0 8px"><button type="button" class="btn tiny gray" data-act="asgBack">↩ 과제 목록</button><b style="font-size:16px">${esc(a.title)}</b><span class="badge ${a.status === '검토대기' ? 'warn' : a.status === '마감' ? 'gray' : 'green'}">${esc(a.status)}</span>${a.penalty ? '<span class="badge warn">미제출 감점</span>' : ''}${v.by ? `<span class="note" style="margin:0 0 0 auto">최근 수정: ${esc(v.by)}</span>` : ''}</div>
     ${a.desc ? `<p class="note">${esc(a.desc)}</p>` : ''}<div class="row-btn" style="margin:6px 0">${tools}</div>
     <p class="note" style="margin:6px 0"><b>제출 ${n1}명 · 미제출 ${n2}명 · 아직 ${left}명</b>${teacher && left && can ? ' (저장하면 아직 체크 안 한 친구는 제출로 처리돼요)' : ''}</p><div class="subgrid">${cards}</div>
-    <div class="row-btn" style="margin-top:14px">${end}${teacher ? '<button type="button" class="btn small red" data-act="asgDel">이 과제 지우기</button>' : ''}</div>`;
+    <div class="row-btn" style="margin-top:14px">${end}${teacher && a.status !== '마감' ? `<button type="button" class="btn small gray" data-act="asgPen" data-on="${a.penalty ? '0' : '1'}">미제출 감점 ${a.penalty ? '끄기' : '켜기'}</button>` : ''}${teacher ? '<button type="button" class="btn small red" data-act="asgDel">이 과제 지우기</button>' : ''}</div>`;
 }
 function asgPanelHtml(teacher) {
   if (st.w.asgBoardId) return asgBoardHtml(teacher);
   const v = st.w.asgList;
   if (!v) { loadAsgList(); return '<p class="note">불러오는 중…</p>'; }
-  const card = (g) => `<button type="button" class="card bcard" data-act="asgOpen" data-id="${esc(g.id)}"><span class="badge ${g.status === '검토대기' ? 'warn' : g.status === '마감' ? 'gray' : 'green'}">${esc(g.status)}</span><div class="nm">${esc(g.title)}</div>${g.desc ? `<div class="ds">${esc(g.desc)}</div>` : ''}<div class="st">${g.status === '마감' ? `제출 ${g.ok} · 미제출 ${g.no} · ${esc(g.closedAt)} 마감` : `다했어요 ${g.doneCount}명 · 체크 ${g.checked}/${v.total}${g.sentBy ? '<br>' + esc(g.sentBy) + '이(가) ' + esc(g.sentAt) + '에 보냄' : ''}`}</div></button>`;
+  const card = (g) => `<button type="button" class="card bcard" data-act="asgOpen" data-id="${esc(g.id)}"><span class="badge ${g.status === '검토대기' ? 'warn' : g.status === '마감' ? 'gray' : 'green'}">${esc(g.status)}</span><div class="nm">${esc(g.title)}</div>${g.penalty ? '<span class="badge warn" style="margin-bottom:4px">미제출 감점</span>' : ''}${g.desc ? `<div class="ds">${esc(g.desc)}</div>` : ''}<div class="st">${g.status === '마감' ? `제출 ${g.ok} · 미제출 ${g.no} · ${esc(g.closedAt)} 마감` : `다했어요 ${g.doneCount}명 · 체크 ${g.checked}/${v.total}${g.sentBy ? '<br>' + esc(g.sentBy) + '이(가) ' + esc(g.sentAt) + '에 보냄' : ''}`}</div></button>`;
   const L = v.list, grp = (st_) => L.filter((x) => x.status === st_);
   const sec = (title, note, arr, empty) => `<h3 style="margin-top:16px">${title}</h3>${note ? `<p class="note">${note}</p>` : ''}${arr.length ? `<div class="grid">${arr.map(card).join('')}</div>` : (empty ? `<p class="note">${empty}</p>` : '')}`;
   let h = '';
-  if (teacher) h += `<h3>새 과제 내기</h3><p class="note">과제를 내면 학생 기본정보 화면에 바로 나타나고, 통계청 공무원이 체크할 수 있게 돼요.</p><div class="form"><div class="field"><label for="asgTitle">과제 제목</label><input id="asgTitle" maxlength="60" placeholder="예) 수학익힘 32쪽"></div><div class="field" style="flex-grow:2"><label for="asgDesc">설명 (없어도 돼요)</label><input id="asgDesc" maxlength="120"></div><button type="button" class="btn" data-act="asgNew">과제 내기</button></div>`;
+  if (teacher) h += `<h3>새 과제 내기</h3><p class="note">과제를 내면 학생 기본정보 화면에 바로 나타나고, 통계청 공무원이 체크할 수 있게 돼요.</p><div class="form"><div class="field"><label for="asgTitle">과제 제목</label><input id="asgTitle" maxlength="60" placeholder="예) 수학익힘 32쪽"></div><div class="field" style="flex-grow:2"><label for="asgDesc">설명 (없어도 돼요)</label><input id="asgDesc" maxlength="120"></div></div><label style="font-size:14px;display:block;margin:4px 0 10px"><input type="checkbox" id="asgPen"> 미제출하면 신용점수 감점 (기본은 감점 없음)</label><button type="button" class="btn" data-act="asgNew">과제 내기</button>`;
   else h += `<p class="note">선생님이 낸 과제를 눌러서 친구들이 냈는지 체크해요. 다 체크하면 [선생님께 보내기]를 눌러 주세요.</p>`;
   if (teacher) h += sec('📥 확인을 기다리는 과제', '통계청이 체크해서 보낸 것들이에요. 눌러서 확인하고 최종 저장하세요.', grp('검토대기'), '');
   h += sec('진행 중인 과제', teacher ? '아직 통계청이 보내지 않은 것들이에요. 선생님이 직접 체크해서 마감할 수도 있어요.' : '', grp('진행중'), teacher ? '진행 중인 과제가 없어요.' : '지금 확인할 과제가 없어요. 선생님이 과제를 내면 여기에 나타나요.');
@@ -1710,10 +1710,11 @@ const WORK_ACT = {
   tqGo: async () => { const r = await run('신청하는 중이에요', () => api('/api/work/treasury/request', { method: 'POST', body: { kind: val('tqKind'), amount: val('tqAmt'), studentId: val('tqWho'), reason: val('tqWhy') } })); if (r) { toast(r.message); st.adm.treasury = null; loadTreasury(); } },
   /* 과제 */
   asgDone: async (d) => { const r = await run('저장하는 중이에요', () => api(`/api/assignments/${encodeURIComponent(d.id)}/done`, { method: 'POST', body: { on: d.on === '1' } })); if (r) { toast(r.message); loadAsgMine(); } },
+  asgPen: async (d) => { const r = await run('바꾸는 중이에요', () => api(`/api/admin/assignments/${encodeURIComponent(st.w.asgBoardId)}/penalty`, { method: 'POST', body: { on: d.on === '1' } })); if (r) { toast(r.message); loadAsgBoard(st.w.asgBoardId); } },
   asgOpen: (d) => { st.w.asgBoardId = d.id; st.w.asgBoard = null; loadAsgBoard(d.id); },
   asgBack: () => { st.w.asgBoardId = ''; st.w.asgBoard = null; st.w.asgList = null; asgRender(); },
   asgReload: () => { st.w.asgList = null; asgRender(); },
-  asgNew: async () => { const r = await run('내는 중이에요', () => api('/api/admin/assignments', { method: 'POST', body: { title: val('asgTitle'), desc: val('asgDesc') } })); if (r) { toast(r.message); st.w.asgList = null; asgRender(); } },
+  asgNew: async () => { const r = await run('내는 중이에요', () => api('/api/admin/assignments', { method: 'POST', body: { title: val('asgTitle'), desc: val('asgDesc'), penalty: !!(document.getElementById('asgPen') && document.getElementById('asgPen').checked) } })); if (r) { toast(r.message); st.w.asgList = null; asgRender(); } },
   asgMark: async (d) => {
     const v = st.w.asgBoard, cur_ = v.status[d.id] || '', next = cur_ === d.s ? '' : d.s;
     if (next) v.status[d.id] = next; else delete v.status[d.id];
@@ -1726,7 +1727,7 @@ const WORK_ACT = {
   asgFill: async () => { const r = await run('채우는 중이에요', () => api(`/api/work/assignments/${encodeURIComponent(st.w.asgBoardId)}/fill-done`, { method: 'POST', body: {} })); if (r) { st.w.asgBoard = r; asgRender(); } },
   asgSend: () => openModal(`<h3>선생님께 보낼까요?</h3><p>보내면 친구들 화면에서 이 과제가 사라지고, 더 고칠 수 없어요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="asgSendGo">보내기</button></div>`),
   asgSendGo: async () => { const r = await run('보내는 중이에요', () => api(`/api/work/assignments/${encodeURIComponent(st.w.asgBoardId)}/send`, { method: 'POST', body: {} })); if (r) { closeModal(); toast(r.message); ACT.asgBack(); } },
-  asgSaveAsk: () => openModal(`<h3>최종 저장하고 마감할까요?</h3><p>체크한 결과가 신용점수에 반영돼요. 체크하지 않은 친구는 <b>제출</b>로 처리돼요. 마감한 뒤에는 고칠 수 없어요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="asgSaveGo">저장하고 마감</button></div>`),
+  asgSaveAsk: () => openModal(`<h3>최종 저장하고 마감할까요?</h3><p>체크한 결과가 신용점수에 반영돼요.${st.w.asgBoard && st.w.asgBoard.assignment.penalty ? ' 이 과제는 <b>미제출이면 신용점수가 깎여요</b>.' : ''} 체크하지 않은 친구는 <b>제출</b>로 처리돼요. 마감한 뒤에는 고칠 수 없어요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="asgSaveGo">저장하고 마감</button></div>`),
   asgSaveGo: async () => { const r = await run('저장하는 중이에요', () => api(`/api/admin/assignments/${encodeURIComponent(st.w.asgBoardId)}/save`, { method: 'POST', body: {} })); if (r) { closeModal(); toast(r.message); st.info = null; st.adm.students = null; ACT.asgBack(); loadInfo(); } },
   asgReturn: async () => { const r = await run('돌려보내는 중이에요', () => api(`/api/admin/assignments/${encodeURIComponent(st.w.asgBoardId)}/return`, { method: 'POST', body: {} })); if (r) { toast(r.message); ACT.asgBack(); } },
   asgDel: () => openModal(`<h3>이 과제를 지울까요?</h3><p>과제가 사라져요. 이미 신용점수에 반영된 기록은 그대로예요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="asgDelGo">지우기</button></div>`),

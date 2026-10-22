@@ -43,6 +43,7 @@ const DEFAULTS = {
   지각벌금: 15,
   일일벌금건수: 5,
   과제최대개수: 6,
+  과제미제출감점: 1,
   벌금최대금액: 500,
   통로위치: '2,4',
 };
@@ -1878,7 +1879,7 @@ async function submitView() {
   const x = d.exists ? d.data() : {};
   return { item: x.item || '', status: x.status || {}, by: x.by || '', at: x.atMs || 0, students: Object.keys(names).sort((a, b) => Number(a) - Number(b)).map((id) => ({ id, name: names[id] })) };
 }
-app.get('/api/work/submit', guard('제출승인'), wrap(async (req, res) => res.json(await submitView())));
+app.get('/api/work/submit', guard('teacher'), wrap(async (req, res) => res.json(await submitView())));
 async function bumpSubmit(req, patchFn) {
   const by = req.user.role === 'teacher' ? '선생님' : (await studentNames())[req.user.id] || '';
   await db.runTransaction(async (t) => {
@@ -1888,13 +1889,13 @@ async function bumpSubmit(req, patchFn) {
     t.set(SUBMIT_REF(), { item: x.item || '', status: x.status || {}, by, atMs: Date.now() });
   });
 }
-app.post('/api/work/submit/check', guard('제출승인'), wrap(async (req, res) => {
+app.post('/api/work/submit/check', guard('teacher'), wrap(async (req, res) => {
   const st = String(req.body.status || '');
   if (!['제출', '미제출', ''].includes(st)) throw new UserError('상태를 확인해 주세요');
   await bumpSubmit(req, (x) => { x.status = x.status || {}; if (req.body.item !== undefined) x.item = String(req.body.item).slice(0, 60); if (req.body.studentId) { if (st) x.status[req.body.studentId] = st; else delete x.status[req.body.studentId]; } });
   res.json(await submitView());
 }));
-app.post('/api/work/submit/all', guard('제출승인'), wrap(async (req, res) => {
+app.post('/api/work/submit/all', guard('teacher'), wrap(async (req, res) => {
   const st = String(req.body.status || '');
   if (!['제출', '미제출', ''].includes(st)) throw new UserError('상태를 확인해 주세요');
   const names = await studentNames();
@@ -1925,7 +1926,7 @@ async function asgNames() { return studentNames(); }
 function asgSummary(id, x, total) {
   const marks = x.marks || {}, done = x.done || {};
   return {
-    id, title: x.title, desc: x.desc || '', status: x.status, day: x.day || '',
+    id, title: x.title, desc: x.desc || '', status: x.status, day: x.day || '', penalty: !!x.penalty,
     doneCount: Object.keys(done).length, checked: Object.keys(marks).length, total,
     by: x.editedBy || '', sentBy: x.sentBy || '', sentAt: x.sentAt ? timeStr(x.sentAt.toDate()) : '', closedAt: x.closedAt ? timeStr(x.closedAt.toDate()) : '',
     ok: x.status === '마감' ? Number(x.okCount || 0) : 0, no: x.status === '마감' ? Number(x.noCount || 0) : 0,
@@ -1942,7 +1943,7 @@ async function asgBoard(id) {
   if (!d.exists) throw new UserError('그 과제를 찾을 수 없어요');
   const x = d.data(), done = x.done || {};
   return {
-    assignment: { id: d.id, title: x.title, desc: x.desc || '', status: x.status }, status: x.marks || {}, by: x.editedBy || '',
+    assignment: { id: d.id, title: x.title, desc: x.desc || '', status: x.status, penalty: !!x.penalty }, status: x.marks || {}, by: x.editedBy || '',
     students: Object.keys(names).sort((a, b) => Number(a) - Number(b)).map((sid) => ({ id: sid, name: names[sid], done: !!done[sid], doneAt: done[sid] ? timeStr(new Date(done[sid])) : '' })),
   };
 }
@@ -1966,7 +1967,7 @@ app.get('/api/assignments/mine', auth, wrap(async (req, res) => {
   const { list } = await asgList(['진행중']);
   const snap = await ASG().get();
   const doneOf = {}; snap.docs.forEach((d) => (doneOf[d.id] = (d.data().done || {})[id]));
-  res.json({ assignments: list.slice(0, Number(S.과제최대개수) || 6).map((a) => ({ id: a.id, title: a.title, desc: a.desc, day: a.day, done: !!doneOf[a.id], doneAt: doneOf[a.id] ? timeStr(new Date(doneOf[a.id])) : '' })) });
+  res.json({ assignments: list.slice(0, Number(S.과제최대개수) || 6).map((a) => ({ id: a.id, title: a.title, desc: a.desc, day: a.day, penalty: !!a.penalty, done: !!doneOf[a.id], doneAt: doneOf[a.id] ? timeStr(new Date(doneOf[a.id])) : '' })) });
 }));
 app.post('/api/assignments/:id/done', auth, studentOnly, wrap(async (req, res) => {
   const sid = req.user.id, on = req.body.on !== false;
@@ -2006,7 +2007,7 @@ app.post('/api/admin/assignments', guard('teacher'), wrap(async (req, res) => {
   if (!title) throw new UserError('과제 제목을 적어 주세요');
   const S = await getSettings(), open = (await asgList(['진행중'])).list.length;
   if (open >= Number(S.과제최대개수)) throw new UserError(`진행 중인 과제는 ${Number(S.과제최대개수)}개까지예요. 먼저 마감해 주세요`);
-  await ASG().doc(newId('A')).set({ title, desc, status: '진행중', marks: {}, done: {}, day: dayStr(new Date()), createdMs: Date.now() });
+  await ASG().doc(newId('A')).set({ title, desc, penalty: req.body.penalty === true, status: '진행중', marks: {}, done: {}, day: dayStr(new Date()), createdMs: Date.now() });
   okMsg(res, '과제를 냈어요. 학생 기본정보에 나타나요');
 }));
 app.post('/api/admin/assignments/:id/save', guard('teacher'), wrap(async (req, res) => {
@@ -2020,11 +2021,18 @@ app.post('/api/admin/assignments/:id/save', guard('teacher'), wrap(async (req, r
   ids.forEach((id) => {
     const stt = (x.marks || {})[id] === '미제출' ? '미제출' : '제출';
     stt === '제출' ? ok++ : no++;
-    b.set(db.collection('credits').doc(), { studentId: id, item: x.title, status: stt, points: stt === '제출' ? Number(S.제출점수) : Number(S.미제출점수), by: '관리자', at });
+    b.set(db.collection('credits').doc(), { studentId: id, item: x.title, status: stt, points: stt === '제출' ? Number(S.제출점수) : (x.penalty ? -Math.abs(Number(S.과제미제출감점) || 1) : Number(S.미제출점수)), by: '관리자', at });
   });
   b.update(ref, { status: '마감', closedAt: at, okCount: ok, noCount: no });
   await b.commit();
   okMsg(res, `"${x.title}" 마감: 제출 ${ok}명 · 미제출 ${no}명을 신용점수에 반영했어요`);
+}));
+app.post('/api/admin/assignments/:id/penalty', guard('teacher'), wrap(async (req, res) => {
+  const ref = ASG().doc(String(req.params.id)), d = await ref.get();
+  if (!d.exists) throw new UserError('그 과제를 찾을 수 없어요');
+  if (d.data().status === '마감') throw new UserError('이미 마감한 과제예요');
+  await ref.update({ penalty: req.body.on === true });
+  okMsg(res, req.body.on === true ? '미제출 감점을 켰어요' : '미제출 감점을 껐어요');
 }));
 app.post('/api/admin/assignments/:id/return', guard('teacher'), wrap(async (req, res) => {
   const ref = ASG().doc(String(req.params.id)), d = await ref.get();
