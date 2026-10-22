@@ -42,6 +42,7 @@ const DEFAULTS = {
   글당최대댓글: 50,
   지각벌금: 15,
   일일벌금건수: 5,
+  과제최대개수: 6,
   벌금최대금액: 500,
   통로위치: '2,4',
 };
@@ -1913,6 +1914,129 @@ app.post('/api/admin/submit/save', guard('teacher'), wrap(async (req, res) => {
   b.delete(SUBMIT_REF());
   await b.commit();
   okMsg(res, `${ids.length}명의 "${item}" 기록을 저장했어요`);
+}));
+
+// ======================================================================
+//  과제 (선생님이 내면 → 학생 기본정보에 나타남 → 통계청이 O/X 체크해서 선생님께 보냄 → 선생님이 최종 저장하면 신용점수 반영)
+//   상태: 진행중 → 검토대기 → 마감
+// ======================================================================
+const ASG = () => db.collection('assignments');
+async function asgNames() { return studentNames(); }
+function asgSummary(id, x, total) {
+  const marks = x.marks || {}, done = x.done || {};
+  return {
+    id, title: x.title, desc: x.desc || '', status: x.status, day: x.day || '',
+    doneCount: Object.keys(done).length, checked: Object.keys(marks).length, total,
+    by: x.editedBy || '', sentBy: x.sentBy || '', sentAt: x.sentAt ? timeStr(x.sentAt.toDate()) : '', closedAt: x.closedAt ? timeStr(x.closedAt.toDate()) : '',
+    ok: x.status === '마감' ? Number(x.okCount || 0) : 0, no: x.status === '마감' ? Number(x.noCount || 0) : 0,
+  };
+}
+async function asgList(statuses) {
+  const [snap, names] = await Promise.all([ASG().get(), asgNames()]);
+  const total = Object.keys(names).length;
+  return { total, list: snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => statuses.includes(x.status))
+    .sort((a, b) => (b.createdMs || 0) - (a.createdMs || 0)).map((x) => asgSummary(x.id, x, total)) };
+}
+async function asgBoard(id) {
+  const [d, names] = await Promise.all([ASG().doc(String(id)).get(), asgNames()]);
+  if (!d.exists) throw new UserError('그 과제를 찾을 수 없어요');
+  const x = d.data(), done = x.done || {};
+  return {
+    assignment: { id: d.id, title: x.title, desc: x.desc || '', status: x.status }, status: x.marks || {}, by: x.editedBy || '',
+    students: Object.keys(names).sort((a, b) => Number(a) - Number(b)).map((sid) => ({ id: sid, name: names[sid], done: !!done[sid], doneAt: done[sid] ? timeStr(new Date(done[sid])) : '' })),
+  };
+}
+async function asgEdit(req, id, patchFn, statuses) {
+  const by = req.user.role === 'teacher' ? '선생님' : (await studentNames())[req.user.id] || '';
+  await db.runTransaction(async (t) => {
+    const ref = ASG().doc(String(id)), d = await t.get(ref);
+    if (!d.exists) throw new UserError('그 과제를 찾을 수 없어요');
+    const x = d.data();
+    if (!statuses.includes(x.status)) throw new UserError(x.status === '마감' ? '이미 마감한 과제예요' : '이미 선생님께 보낸 과제라 더 고칠 수 없어요');
+    const nx = { marks: { ...(x.marks || {}) }, done: { ...(x.done || {}) }, status: x.status };
+    patchFn(nx);
+    t.update(ref, { marks: nx.marks, done: nx.done, status: nx.status, editedBy: by, editedMs: Date.now(), ...(nx.sent ? { sentBy: by, sentAt: Timestamp.now() } : {}) });
+  });
+}
+const editable = (req) => (req.user.role === 'teacher' ? ['진행중', '검토대기'] : ['진행중']);
+
+// 학생: 내 과제 (진행중인 것만) · 다했어요
+app.get('/api/assignments/mine', auth, wrap(async (req, res) => {
+  const id = targetId(req), S = await getSettings();
+  const { list } = await asgList(['진행중']);
+  const snap = await ASG().get();
+  const doneOf = {}; snap.docs.forEach((d) => (doneOf[d.id] = (d.data().done || {})[id]));
+  res.json({ assignments: list.slice(0, Number(S.과제최대개수) || 6).map((a) => ({ id: a.id, title: a.title, desc: a.desc, day: a.day, done: !!doneOf[a.id], doneAt: doneOf[a.id] ? timeStr(new Date(doneOf[a.id])) : '' })) });
+}));
+app.post('/api/assignments/:id/done', auth, studentOnly, wrap(async (req, res) => {
+  const sid = req.user.id, on = req.body.on !== false;
+  await asgEdit(req, req.params.id, (nx) => { if (on) nx.done[sid] = Date.now(); else delete nx.done[sid]; }, ['진행중']);
+  okMsg(res, on ? '다했어요로 알렸어요' : '취소했어요');
+}));
+
+// 통계청 공무원(제출승인 권한) · 선생님: 체크판
+app.get('/api/work/assignments', guard('제출승인'), wrap(async (req, res) => res.json(await asgList(req.user.role === 'teacher' ? ['진행중', '검토대기'] : ['진행중']))));
+app.get('/api/work/assignments/:id', guard('제출승인'), wrap(async (req, res) => res.json(await asgBoard(req.params.id))));
+app.post('/api/work/assignments/:id/check', guard('제출승인'), wrap(async (req, res) => {
+  const st = String(req.body.status || ''), sid = String(req.body.studentId || '');
+  if (!['제출', '미제출', ''].includes(st)) throw new UserError('상태를 확인해 주세요');
+  await asgEdit(req, req.params.id, (nx) => { if (st) nx.marks[sid] = st; else delete nx.marks[sid]; }, editable(req));
+  res.json(await asgBoard(req.params.id));
+}));
+app.post('/api/work/assignments/:id/all', guard('제출승인'), wrap(async (req, res) => {
+  const st = String(req.body.status || '');
+  if (!['제출', '미제출', ''].includes(st)) throw new UserError('상태를 확인해 주세요');
+  const names = await asgNames();
+  await asgEdit(req, req.params.id, (nx) => { nx.marks = {}; if (st) Object.keys(names).forEach((id) => (nx.marks[id] = st)); }, editable(req));
+  res.json(await asgBoard(req.params.id));
+}));
+app.post('/api/work/assignments/:id/fill-done', guard('제출승인'), wrap(async (req, res) => {
+  await asgEdit(req, req.params.id, (nx) => { Object.keys(nx.done).forEach((id) => { if (!nx.marks[id]) nx.marks[id] = '제출'; }); }, editable(req));
+  res.json(await asgBoard(req.params.id));
+}));
+app.post('/api/work/assignments/:id/send', guard('제출승인'), wrap(async (req, res) => {
+  await asgEdit(req, req.params.id, (nx) => { nx.status = '검토대기'; nx.sent = true; }, ['진행중']);
+  okMsg(res, '선생님께 보냈어요');
+}));
+
+// 선생님: 만들기 · 목록 · 최종 저장 · 돌려보내기 · 지우기
+app.get('/api/admin/assignments', guard('teacher'), wrap(async (req, res) => res.json(await asgList(['진행중', '검토대기', '마감']))));
+app.post('/api/admin/assignments', guard('teacher'), wrap(async (req, res) => {
+  const title = String(req.body.title || '').trim().slice(0, 60), desc = String(req.body.desc || '').trim().slice(0, 120);
+  if (!title) throw new UserError('과제 제목을 적어 주세요');
+  const S = await getSettings(), open = (await asgList(['진행중'])).list.length;
+  if (open >= Number(S.과제최대개수)) throw new UserError(`진행 중인 과제는 ${Number(S.과제최대개수)}개까지예요. 먼저 마감해 주세요`);
+  await ASG().doc(newId('A')).set({ title, desc, status: '진행중', marks: {}, done: {}, day: dayStr(new Date()), createdMs: Date.now() });
+  okMsg(res, '과제를 냈어요. 학생 기본정보에 나타나요');
+}));
+app.post('/api/admin/assignments/:id/save', guard('teacher'), wrap(async (req, res) => {
+  const S = await getSettings(), at = Timestamp.now(), names = await asgNames();
+  const ref = ASG().doc(String(req.params.id)), d = await ref.get();
+  if (!d.exists) throw new UserError('그 과제를 찾을 수 없어요');
+  const x = d.data();
+  if (x.status === '마감') throw new UserError('이미 마감한 과제예요');
+  const ids = Object.keys(names);
+  const b = db.batch(); let ok = 0, no = 0;
+  ids.forEach((id) => {
+    const stt = (x.marks || {})[id] === '미제출' ? '미제출' : '제출';
+    stt === '제출' ? ok++ : no++;
+    b.set(db.collection('credits').doc(), { studentId: id, item: x.title, status: stt, points: stt === '제출' ? Number(S.제출점수) : Number(S.미제출점수), by: '관리자', at });
+  });
+  b.update(ref, { status: '마감', closedAt: at, okCount: ok, noCount: no });
+  await b.commit();
+  okMsg(res, `"${x.title}" 마감: 제출 ${ok}명 · 미제출 ${no}명을 신용점수에 반영했어요`);
+}));
+app.post('/api/admin/assignments/:id/return', guard('teacher'), wrap(async (req, res) => {
+  const ref = ASG().doc(String(req.params.id)), d = await ref.get();
+  if (!d.exists || d.data().status !== '검토대기') throw new UserError('돌려보낼 수 없는 과제예요');
+  await ref.update({ status: '진행중' });
+  okMsg(res, '통계청에 돌려보냈어요');
+}));
+app.post('/api/admin/assignments/:id/delete', guard('teacher'), wrap(async (req, res) => {
+  const ref = ASG().doc(String(req.params.id)), d = await ref.get();
+  if (!d.exists) throw new UserError('그 과제를 찾을 수 없어요');
+  await ref.delete();
+  okMsg(res, '과제를 지웠어요 (신용점수에 이미 반영된 기록은 그대로예요)');
 }));
 
 // ---------- 신용등급 평가원: 현황 · 등급 기준 ----------
