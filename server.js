@@ -2180,6 +2180,9 @@ app.get('/api/country', wrap(async (req, res) => {
 app.get('/ping', (req, res) => res.send('ok'));
 
 const PORT = process.env.PORT || 3000;
+// 먼저 문을 열고(Render가 서버가 켜졌는지 바로 알 수 있게), 초기 데이터 준비는 뒤에서 해요
+app.listen(PORT, '0.0.0.0', () => console.log(`돼지공주나라 서버 시작: ${PORT}`));
 ensureSeed()
-  .catch((e) => console.error('초기 데이터 준비 실패', e))
-  .finally(() => app.listen(PORT, () => console.log(`돼지공주나라 서버 시작: ${PORT}`)));
+  .then(() => console.log('초기 데이터 준비 끝'))
+  .catch((e) => console.error('초기 데이터 준비 실패', e && e.message ? e.message : e));
+process.on('unhandledRejection', (e) => console.error('처리되지 않은 오류', e && e.message ? e.message : e));
