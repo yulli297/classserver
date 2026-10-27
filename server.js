@@ -20,7 +20,7 @@ const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
 
 const app = express();
-app.use(express.json({ limit: '7mb' })); // 보드 사진(줄인 JPEG 최대 5장) 때문에 넉넉하게
+app.use(express.json({ limit: '12mb' })); // 보드 사진(줄인 JPEG 최대 6장)과 파일(최대 3개) 때문에 넉넉하게
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ======================================================================
@@ -43,7 +43,8 @@ const DEFAULTS = {
   공동구매최소금액: 300,
   예금최소금액: 100,
   예금최대일수: 60,
-  보드최대사진: 5,
+  보드최대사진: 6,
+  보드최대파일: 3,
   글당최대댓글: 50,
   지각벌금: 15,
   일일벌금건수: 5,
@@ -224,7 +225,13 @@ let settingsCache = { at: 0, value: null };
 async function getSettings() {
   if (settingsCache.value && Date.now() - settingsCache.at < 10000) return settingsCache.value;
   const d = await db.collection('meta').doc('settings').get();
-  const value = { ...DEFAULTS, ...(d.exists ? d.data() : {}) };
+  const stored = d.exists ? d.data() : {};
+  // 한 번만: 보드 글당 사진 수를 6장으로 올려요 (예전 기본값 5가 이미 저장돼 있어도). 그 뒤에는 설정에서 바꾼 값을 따라요.
+  if (!stored.보드사진6적용) {
+    if (!(Number(stored.보드최대사진) > 6)) stored.보드최대사진 = 6;
+    db.collection('meta').doc('settings').set({ 보드최대사진: stored.보드최대사진, 보드사진6적용: true }, { merge: true }).catch((e) => console.error(e));
+  }
+  const value = { ...DEFAULTS, ...stored };
   settingsCache = { at: Date.now(), value };
   return value;
 }
@@ -1237,9 +1244,12 @@ app.post('/api/admin/treasury/adjust', guard('teacher'), wrap(async (req, res) =
 // ======================================================================
 //  우리반 보드 (글 · 사진 · 댓글 · 추천)
 //   사진은 화면에서 긴 변 1000px 안팎 JPEG로 줄여 보내고, 글과 따로 boardPhotos 문서에 저장 (Firestore 문서 1MB 제한 때문)
+//   파일(md·pdf·txt)도 같은 이유로 글과 따로 boardFiles 문서에 저장
 // ======================================================================
 const TEACHER_AUTHOR = '선생님';
 const MAX_PHOTO_CHARS = 700000; // base64 글자 수 (약 500KB)
+const MAX_FILE_BYTES = 700000; // 파일 하나 (약 680KB). Firestore 문서 1MB 제한 때문에 base64로 저장해도 넘지 않는 크기
+const FILE_EXTS = ['md', 'pdf', 'txt'];
 const boardOf = (d) => ({ id: d.id, name: d.data().name, desc: d.data().desc || '', comments: d.data().comments !== false, likes: d.data().likes !== false, active: d.data().active !== false });
 
 async function getBoard(id) {
@@ -1255,7 +1265,7 @@ async function studentNames() {
 }
 function cleanPhotos(list, S, keepCount = 0) {
   const arr = (Array.isArray(list) ? list : []).filter((p) => p && p.data);
-  const max = Number(S.보드최대사진) || 5;
+  const max = Number(S.보드최대사진) || 6;
   if (arr.length + keepCount > max) throw new UserError(`사진은 모두 ${max}장까지 붙일 수 있어요`);
   return arr.map((p, i) => {
     const data = String(p.data).replace(/^data:image\/jpeg;base64,/, '');
@@ -1264,10 +1274,38 @@ function cleanPhotos(list, S, keepCount = 0) {
     return data;
   });
 }
+// 파일(md · pdf · txt): 이름과 내용을 받아 검사해요. 내용은 글과 따로 boardFiles 문서에 저장해요.
+function cleanFiles(list, S, keepCount = 0) {
+  const arr = (Array.isArray(list) ? list : []).filter((f) => f && f.data);
+  const max = Number(S.보드최대파일) || 3;
+  if (arr.length + keepCount > max) throw new UserError(`파일은 모두 ${max}개까지 붙일 수 있어요`);
+  return arr.map((f, i) => {
+    const name = String(f.name || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 80);
+    const label = name ? `"${name}"` : `${i + 1}번째 파일`;
+    const ext = ((name.match(/\.([A-Za-z0-9]+)$/) || [])[1] || '').toLowerCase();
+    if (!FILE_EXTS.includes(ext)) throw new UserError(`${label}은(는) 올릴 수 없는 파일이에요 (md, pdf, txt만 올릴 수 있어요)`);
+    const data = String(f.data).replace(/^data:[^,]*,/, '');
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw new UserError(`${label}을(를) 읽을 수 없어요`);
+    const buf = Buffer.from(data, 'base64');
+    if (buf.length > MAX_FILE_BYTES) throw new UserError(`${label}이(가) 너무 커요 (${Math.floor(MAX_FILE_BYTES / 1000)}KB까지 올릴 수 있어요)`);
+    const ok = ext === 'pdf' ? buf.slice(0, 5).toString('latin1') === '%PDF-' : !buf.includes(0);
+    if (!ok) throw new UserError(`${label}은(는) 올바른 ${ext} 파일이 아니에요`);
+    return { name, ext, data, size: buf.length };
+  });
+}
+async function saveFiles(postId, files) {
+  const metas = [];
+  for (const f of files) {
+    const id = newId('F');
+    await db.collection('boardFiles').doc(id).set({ postId, name: f.name, ext: f.ext, size: f.size, data: f.data, at: Timestamp.now() });
+    metas.push({ id, name: f.name, size: f.size });
+  }
+  return metas;
+}
 function cleanPost(b, hasPhoto) {
   const text = String(b.text || '').trim();
   const link = String(b.link || '').trim();
-  if (!text && !link && !hasPhoto) throw new UserError('내용이나 사진, 링크 중 하나는 있어야 해요');
+  if (!text && !link && !hasPhoto) throw new UserError('내용이나 사진, 파일, 링크 중 하나는 있어야 해요');
   if (text.length > 1000) throw new UserError('내용이 너무 길어요. 1000자까지 쓸 수 있어요');
   if (link && !/^https?:\/\//i.test(link)) throw new UserError('링크는 http로 시작해야 해요');
   return { text, link };
@@ -1285,11 +1323,14 @@ async function writePost(boardId, authorId, b, S, admin) {
   const board = await getBoard(boardId);
   if (!board.active && !admin) throw new UserError('지금은 쓸 수 없는 보드예요');
   const datas = cleanPhotos(b.photos, S);
-  const { text, link } = cleanPost(b, datas.length > 0);
+  const fileList = cleanFiles(b.files, S);
+  const { text, link } = cleanPost(b, datas.length > 0 || fileList.length > 0);
   const postId = newId('B');
   const photoIds = await savePhotos(postId, datas);
-  await db.collection('boardPosts').doc(postId).set({ boardId: board.id, authorId, at: Timestamp.now(), text, link, photoIds, deleted: false, order: -Date.now() });
-  return photoIds.length > 1 ? `사진 ${photoIds.length}장과 함께 올렸어요!` : '올렸어요!';
+  const files = await saveFiles(postId, fileList);
+  await db.collection('boardPosts').doc(postId).set({ boardId: board.id, authorId, at: Timestamp.now(), text, link, photoIds, files, deleted: false, order: -Date.now() });
+  const extra = [photoIds.length > 1 ? `사진 ${photoIds.length}장` : '', files.length ? `파일 ${files.length}개` : ''].filter(Boolean).join('과 ');
+  return extra ? `${extra}과(와) 함께 올렸어요!` : '올렸어요!';
 }
 
 // 보드 목록 (선생님은 숨긴 보드도 보임)
@@ -1301,7 +1342,7 @@ app.get('/api/board', auth, wrap(async (req, res) => {
   const S = await getSettings();
   const boards = bs.docs.map((d) => ({ ...boardOf(d), createdMs: d.data().createdMs || 0, count: counts[d.id] || 0 }))
     .filter((b) => teacher || b.active).sort((a, b) => a.createdMs - b.createdMs);
-  res.json({ boards, maxPhotos: Number(S.보드최대사진) || 5, teacher });
+  res.json({ boards, maxPhotos: Number(S.보드최대사진) || 6, maxFiles: Number(S.보드최대파일) || 3, teacher });
 }));
 
 // 한 보드의 글 (최근 순, 40개)
@@ -1327,7 +1368,7 @@ app.get('/api/board/:id/posts', auth, wrap(async (req, res) => {
   res.json({
     board, teacher,
     posts: posts.map((p) => ({
-      id: p.id, name: nm(p.authorId), at: timeStr(p.at.toDate()), text: p.text, link: p.link, photos: p.photoIds || [],
+      id: p.id, name: nm(p.authorId), at: timeStr(p.at.toDate()), text: p.text, link: p.link, photos: p.photoIds || [], files: p.files || [],
       mine: !!me && p.authorId === me, ...byPost[p.id],
     })),
   });
@@ -1340,6 +1381,19 @@ app.get('/api/board/photo/:id', auth, wrap(async (req, res) => {
   res.set('Content-Type', 'image/jpeg');
   res.set('Cache-Control', 'private, max-age=86400');
   res.send(Buffer.from(d.data().data, 'base64'));
+}));
+
+// 첨부 파일 (?t=토큰으로 확인, ?dl=1이면 내려받기)
+app.get('/api/board/file/:id', auth, wrap(async (req, res) => {
+  const d = await db.collection('boardFiles').doc(String(req.params.id)).get();
+  if (!d.exists) return res.status(404).json({ error: '파일을 찾을 수 없어요' });
+  const f = d.data();
+  const encoded = encodeURIComponent(f.name || 'file').replace(/['()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  res.set('Content-Type', f.ext === 'pdf' ? 'application/pdf' : 'text/plain; charset=utf-8');
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Content-Disposition', `${req.query.dl === '1' ? 'attachment' : 'inline'}; filename*=UTF-8''${encoded}`);
+  res.set('Cache-Control', 'private, max-age=86400');
+  res.send(Buffer.from(f.data, 'base64'));
 }));
 
 app.post('/api/board/post', auth, studentOnly, wrap(async (req, res) => {
@@ -1359,10 +1413,15 @@ app.post('/api/board/post/:id/edit', auth, studentOnly, wrap(async (req, res) =>
   const old = d.data().photoIds || [];
   const keep = old.filter((id) => (Array.isArray(req.body.keep) ? req.body.keep : []).includes(id));
   const datas = cleanPhotos(req.body.photos, S, keep.length);
-  const { text, link } = cleanPost(req.body, keep.length + datas.length > 0);
+  const oldFiles = d.data().files || [];
+  const keepFiles = oldFiles.filter((f) => (Array.isArray(req.body.keepFiles) ? req.body.keepFiles : []).includes(f.id));
+  const fileList = cleanFiles(req.body.files, S, keepFiles.length);
+  const { text, link } = cleanPost(req.body, keep.length + datas.length + keepFiles.length + fileList.length > 0);
   const added = await savePhotos(ref.id, datas);
-  await ref.update({ text, link, photoIds: keep.concat(added) });
+  const addedFiles = await saveFiles(ref.id, fileList);
+  await ref.update({ text, link, photoIds: keep.concat(added), files: keepFiles.concat(addedFiles) });
   await Promise.all(old.filter((id) => !keep.includes(id)).map((id) => db.collection('boardPhotos').doc(id).delete()));
+  await Promise.all(oldFiles.filter((f) => !keepFiles.some((k) => k.id === f.id)).map((f) => db.collection('boardFiles').doc(f.id).delete()));
   res.json({ ok: true, message: '글을 고쳤어요' });
 }));
 
@@ -1429,7 +1488,10 @@ app.post('/api/admin/board/:id/delete', guard('teacher'), wrap(async (req, res) 
   for (const c of ['boardPosts', 'boardComments', 'boardLikes']) {
     const snap = await db.collection(c).where('boardId', '==', board.id).get();
     for (const d of snap.docs) {
-      if (c === 'boardPosts') await Promise.all((d.data().photoIds || []).map((id) => db.collection('boardPhotos').doc(id).delete()));
+      if (c === 'boardPosts') {
+        await Promise.all((d.data().photoIds || []).map((id) => db.collection('boardPhotos').doc(id).delete()));
+        await Promise.all((d.data().files || []).map((f) => db.collection('boardFiles').doc(f.id).delete()));
+      }
       await d.ref.delete();
     }
   }
@@ -2167,7 +2229,7 @@ app.post('/api/admin/bank/product/:days/delete', guard('은행관리'), wrap(asy
 app.post('/api/admin/boards/wipe-all', guard('teacher'), wrap(async (req, res) => {
   if (req.body.confirm !== '삭제') throw new UserError('확인 문구를 입력해 주세요');
   let n = 0;
-  for (const c of ['boardPosts', 'boardComments', 'boardLikes', 'boardPhotos', 'boards']) {
+  for (const c of ['boardPosts', 'boardComments', 'boardLikes', 'boardPhotos', 'boardFiles', 'boards']) {
     const snap = await db.collection(c).get();
     for (let i = 0; i < snap.docs.length; i += 400) { const b = db.batch(); snap.docs.slice(i, i + 400).forEach((d) => b.delete(d.ref)); await b.commit(); }
     n += snap.size;
