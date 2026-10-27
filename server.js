@@ -8,6 +8,11 @@ const admin = require('firebase-admin');
 // ---------- 환경설정 (Render 환경변수) ----------
 const SECRET = process.env.TOKEN_SECRET || 'change-me';
 const TEACHER_PASSWORD = process.env.TEACHER_PASSWORD || 'teacher1234';
+// 구글 계정으로 선생님 자동 로그인: 구글 Cloud에서 만든 웹 클라이언트 ID를 GOOGLE_CLIENT_ID에 넣으면 켜져요.
+// 아래 계정으로 구글 로그인하면 선생님으로 들어가요. 바꾸려면 환경변수 TEACHER_GOOGLE_EMAILS(쉼표로 구분)를 쓰세요.
+const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
+const TEACHER_GOOGLE_EMAILS = (process.env.TEACHER_GOOGLE_EMAILS || 'ddchani37@gmail.com,e.cg.b150@on.use.go.kr')
+  .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
 
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
@@ -318,6 +323,26 @@ app.post('/api/login', wrap(async (req, res) => {
   const doc = await db.collection('students').doc(String(id)).get();
   if (!doc.exists || doc.data().pinHash !== hashPin(pin)) throw new UserError('번호 또는 비밀번호가 달라요');
   res.json({ token: makeToken({ role: 'student', id: doc.id }, 24 * 60), role: 'student' });
+}));
+
+// 구글 로그인: 구글이 발급한 신분 확인 토큰을 구글 서버에 물어 확인하고, 선생님 계정 목록에 있으면 선생님 토큰을 줘요.
+app.post('/api/login/google', wrap(async (req, res) => {
+  if (!GOOGLE_CLIENT_ID) throw new UserError('구글 로그인이 아직 설정되지 않았어요');
+  const credential = String((req.body || {}).credential || '');
+  if (!credential) throw new UserError('구글 로그인 정보가 없어요');
+  let info;
+  try {
+    const r = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(credential));
+    info = await r.json();
+    if (!r.ok) info = null;
+  } catch (e) { info = null; }
+  if (!info || info.aud !== GOOGLE_CLIENT_ID || !['accounts.google.com', 'https://accounts.google.com'].includes(info.iss)) {
+    throw new UserError('구글 로그인을 확인하지 못했어요. 다시 해 주세요');
+  }
+  const email = String(info.email || '').toLowerCase();
+  if (!email || String(info.email_verified) !== 'true') throw new UserError('확인된 구글 계정이 아니에요');
+  if (!TEACHER_GOOGLE_EMAILS.includes(email)) throw new UserError('선생님 계정이 아니에요. 학생은 번호와 비밀번호로 들어가요');
+  res.json({ token: makeToken({ role: 'teacher', via: 'google' }), role: 'teacher' });
 }));
 
 app.post('/api/pin', auth, studentOnly, wrap(async (req, res) => {
@@ -2173,7 +2198,7 @@ app.post('/api/admin/settings', guard('teacher'), wrap(async (req, res) => {
 
 app.get('/api/country', wrap(async (req, res) => {
   const S = await getSettings();
-  res.json({ name: S.나라이름, currency: S.화폐단위 });
+  res.json({ name: S.나라이름, currency: S.화폐단위, googleClientId: GOOGLE_CLIENT_ID });
 }));
 
 // 서버 깨우기용

@@ -22,6 +22,8 @@ button { font-family: inherit; }
 .lbox input { width: 100%; height: 52px; border: 1.5px solid var(--line); border-radius: 14px; padding: 0 16px; font-size: 17px; font-family: inherit; background: #F9FAFB; }
 .lbox input:focus { outline: 3px solid var(--blue); outline-offset: 1px; background: #fff; }
 .linkbtn { background: none; border: 0; color: var(--sub); font-size: 14px; cursor: pointer; padding: 8px; min-height: 44px; }
+.gwrap { display: flex; flex-direction: column; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 14px; }
+.gwrap .gnote { margin: 0; color: var(--sub); font-size: 13px; }
 .err { color: var(--red); font-size: 14px; font-weight: 500; min-height: 18px; margin: 0; text-align: center; }
 
 /* ---------- 바깥 틀 ---------- */
@@ -275,6 +277,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
     <button class="btn" type="submit" id="lgo">들어가기</button>
     <p class="err" id="lerr"></p>
     <button class="linkbtn" type="button" id="lswitch">선생님으로 들어가기</button>
+    <div id="gwrap" class="gwrap" hidden>
+      <p class="gnote">선생님은 구글 계정으로 바로 들어갈 수 있어요</p>
+      <div id="gbtn"></div>
+    </div>
   </form>
 </div>
 
@@ -412,11 +418,46 @@ $('#lform').onsubmit = async (e) => {
   } catch (err) { $('#lerr').textContent = err.message; }
   finally { $('#lgo').disabled = false; }
 };
+/* ---------- 구글 계정으로 선생님 자동 로그인 ---------- */
+// 서버에 구글 클라이언트 ID가 설정돼 있을 때만 보여요. 선생님 계정 목록은 서버가 확인해요.
+let googleReady = false;
+async function googleCredential(resp) {
+  if (!resp || !resp.credential) return;
+  $('#lerr').textContent = '';
+  try {
+    const r = await fetch('/api/login/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: resp.credential }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || '서버에 문제가 생겼어요');
+    st.token = j.token; saveToken();
+    await enter();
+  } catch (err) { $('#lerr').textContent = err.message; }
+}
+let googleClientId = '';
+// auto가 true면 이 기기에서 구글에 이미 로그인돼 있을 때 바로 들어가요. 나가기 뒤에는 false로 불러서 자동으로 다시 들어가지 않게 해요.
+function initGoogle(auto) {
+  if (!googleClientId || googleReady) return;
+  const s = document.createElement('script');
+  s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.defer = true;
+  s.onload = () => {
+    if (!window.google || !google.accounts || !google.accounts.id) return;
+    googleReady = true;
+    google.accounts.id.initialize({ client_id: googleClientId, callback: googleCredential, auto_select: !!auto, cancel_on_tap_outside: false });
+    google.accounts.id.renderButton($('#gbtn'), { theme: 'outline', size: 'large', text: 'signin_with', shape: 'pill', locale: 'ko' });
+    $('#gwrap').hidden = false;
+    if (auto && !$('#login').hidden) google.accounts.id.prompt();
+  };
+  document.head.appendChild(s);
+}
+const TEACHER_GREETING = '선생님, 안녕하세요<br>오늘도 행복하세요';
+
 function logout() {
+  // 나가기를 눌렀는데 곧바로 다시 자동 로그인되지 않게 해요
+  try { if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect(); } catch (e) {}
   st.token = null; saveToken(); st.role = null; st.info = null; st.shop = null; st.groups = null; st.history = null; st.bank = null; st.jobs = null;
   st.adm = { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null, approvals: null, jobs: null }; st.w = {};
   st.tm = { info: false, shop: false, bank: false, jobs: false, board: false }; st.tab = 'info'; st.board = null; st.boardId = ''; st.posts = null; renderBoardFull();
   closeModal(); $('#app').hidden = true; $('#login').hidden = false; $('#lpin').value = '';
+  initGoogle(false);
 }
 $('#logout').onclick = logout;
 
@@ -426,9 +467,11 @@ async function enter() {
   if (isTeacher()) {
     const a = await api('/api/admin/students');
     st.adm.students = a;
-    st.asId = (a.students[0] || {}).id || '';
-    if (!a.students.length) { st.tm.info = true; st.sub.info = 'register'; }
-    else loadApprovals(false).then(() => renderInfo());
+    // 선생님은 학생 미리보기 없이 시작하고, 기본정보 교사 모드가 자동으로 켜져요
+    st.asId = '';
+    st.tm.info = true;
+    st.sub.info = a.students.length ? 'approvals' : 'register';
+    if (a.students.length) loadApprovals(false).then(() => renderInfo());
   }
   $('#login').hidden = true; $('#app').hidden = false;
   buildFrame();
@@ -442,11 +485,15 @@ function fillAsSel() {
   sel.hidden = !isTeacher();
   if (!isTeacher()) return;
   const ss = (st.adm.students || {}).students || [];
-  sel.innerHTML = ss.length ? ss.map((s) => `<option value="${esc(s.id)}"${s.id === st.asId ? ' selected' : ''}>${esc(s.id)}번 ${esc(s.name)}</option>`).join('') : '<option value="">학생 없음</option>';
+  sel.innerHTML = ss.length
+    ? `<option value=""${st.asId ? '' : ' selected'}>학생 미리보기 안 함</option>` + ss.map((s) => `<option value="${esc(s.id)}"${s.id === st.asId ? ' selected' : ''}>${esc(s.id)}번 ${esc(s.name)}</option>`).join('')
+    : '<option value="">학생 없음</option>';
 }
 $('#asSel').onchange = (e) => {
   st.asId = e.target.value; st.info = null; st.history = null; st.shop = null; st.groups = null; st.bank = null; st.jobs = null; st.w = {};
-  renderAll(); loadInfo(); if (st.tab === 'shop') loadShop(); if (st.tab === 'bank') loadBank(); if (st.tab === 'jobs') loadJobs(); if (st.tab === 'work') loadWork();
+  renderAll(); loadInfo();
+  if (!st.asId) return;
+  if (st.tab === 'shop') loadShop(); if (st.tab === 'bank') loadBank(); if (st.tab === 'jobs') loadJobs(); if (st.tab === 'work') loadWork();
 };
 
 /* ====================================================================
@@ -512,12 +559,16 @@ function renderInfo() {
   const i = st.info;
   let body;
   if (!i) {
-    body = leafHead('기본정보', '불러오는 중이에요', 'info', isTeacher()) +
-      (isTeacher() && !st.asId ? '<div class="empty">아직 등록된 학생이 없어요.<br>아래 교사 모드의 “학생 등록”에서 명단을 넣어 주세요.</div>' : '<div class="empty">잠시만 기다려 주세요…</div>');
+    const hasStudents = !!((st.adm.students || {}).students || []).length;
+    body = leafHead('기본정보', isTeacher() ? TEACHER_GREETING : '불러오는 중이에요', 'info', isTeacher()) +
+      (isTeacher() && !st.asId
+        ? (hasStudents ? '<div class="empty">위쪽 선택 칸에서 학생을 고르면 그 학생이 보는 화면을 미리 볼 수 있어요.</div>'
+          : '<div class="empty">아직 등록된 학생이 없어요.<br>아래 교사 모드의 “학생 등록”에서 명단을 넣어 주세요.</div>')
+        : '<div class="empty">잠시만 기다려 주세요…</div>');
   } else {
     const c = i.currency;
     const preview = isTeacher();
-    body = leafHead('기본정보', `${esc(i.name)}님, 안녕하세요<br>오늘의 ${esc(c)}을 확인해 보세요`, 'info', isTeacher());
+    body = leafHead('기본정보', isTeacher() ? TEACHER_GREETING : `${esc(i.name)}님, 안녕하세요<br>오늘의 ${esc(c)}을 확인해 보세요`, 'info', isTeacher());
     body += `<div class="hero">` +
       (i.debt ? `<div class="notice">월급을 받으면 자동으로 갚아져요. 그때까지 간식·쿠폰은 살 수 없어요.</div>` : '') +
       `<small>${i.debt ? '갚아야 할 빚' : '내 ' + esc(c)}</small>` +
@@ -709,6 +760,7 @@ async function loadShop() {
   renderShop();
 }
 async function loadGroups() {
+  if (isTeacher() && !st.asId) return;
   try { st.groups = await api('/api/groups' + asQ()); } catch (e) { toast(e.message, true); }
   renderShop();
 }
@@ -1106,7 +1158,6 @@ const ACT = {
     if (r) {
       toast(r.message);
       await loadAdmStudents(false);
-      if (!st.asId && st.adm.students.students.length) { st.asId = st.adm.students.students[0].id; }
       fillAsSel(); st.info = null; loadInfo(); renderInfo();
     }
   },
@@ -1796,10 +1847,11 @@ document.addEventListener('change', async (e) => {
    시작
 ==================================================================== */
 (async function boot() {
-  try { const c = await fetch('/api/country').then((r) => r.json()); if (c.name) { document.title = c.name; $('#lname').textContent = c.name; $('#brandName').textContent = c.name; } } catch (e) {}
+  try { const c = await fetch('/api/country').then((r) => r.json()); googleClientId = c.googleClientId || ''; if (c.name) { document.title = c.name; $('#lname').textContent = c.name; $('#brandName').textContent = c.name; } } catch (e) {}
   const t = loadToken();
   if (t) { st.token = t; try { await enter(); return; } catch (e) { st.token = null; saveToken(); } }
   $('#login').hidden = false;
+  initGoogle(true);
 })();
 </script>
 </body>
