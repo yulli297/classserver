@@ -223,7 +223,7 @@ const wrap = (fn) => async (req, res) => {
 // 설정 (10초 캐시)
 let settingsCache = { at: 0, value: null };
 async function getSettings() {
-  if (settingsCache.value && Date.now() - settingsCache.at < 10000) return settingsCache.value;
+  if (settingsCache.value && Date.now() - settingsCache.at < 60000) return settingsCache.value; // 설정은 저장할 때 바로 비워져요
   const d = await db.collection('meta').doc('settings').get();
   const stored = d.exists ? d.data() : {};
   // 한 번만: 보드 글당 사진 수를 6장으로 올려요 (예전 기본값 5가 이미 저장돼 있어도). 그 뒤에는 설정에서 바꾼 값을 따라요.
@@ -239,14 +239,54 @@ async function getSettings() {
 // 직업 목록 (10초 캐시)
 let jobsCache = { at: 0, value: null };
 async function getJobs() {
-  if (jobsCache.value && Date.now() - jobsCache.at < 10000) return jobsCache.value;
+  if (jobsCache.value && Date.now() - jobsCache.at < 60000) return jobsCache.value; // 직업을 고칠 때 바로 비워져요
   const snap = await db.collection('jobs').get();
   const value = {};
   snap.docs.forEach((d) => (value[d.id] = { id: d.id, ...d.data() }));
   jobsCache = { at: Date.now(), value };
   return value;
 }
-const clearCaches = () => { settingsCache = { at: 0, value: null }; jobsCache = { at: 0, value: null }; };
+const clearCaches = () => { settingsCache = { at: 0, value: null }; jobsCache = { at: 0, value: null }; clearNames(); };
+
+// ----------------------------------------------------------------------
+//  읽기 줄이기 (Firestore 무료 한도 보호)
+//   · 학생 명단: 이름은 등록·이름 고치기·가져오기 때만 바뀌어서 서버가 기억해 두어요
+//   · 선생님 화면 몇 가지: 10초 기억, 어떤 저장(POST 등)이든 끝나면 바로 비워요
+//   · 보드: 아래 '우리반 보드' 부분에 있어요
+//   · 상점·은행·돈이 오가는 화면은 기억하지 않고 매번 새로 읽어요
+// ----------------------------------------------------------------------
+let namesCache = { at: 0, value: null };
+const NAMES_TTL = 10 * 60 * 1000;
+const clearNames = () => { namesCache = { at: 0, value: null }; };
+async function studentNames() {
+  if (namesCache.value && Date.now() - namesCache.at < NAMES_TTL) return { ...namesCache.value };
+  const snap = await db.collection('students').get();
+  const names = {};
+  snap.docs.forEach((d) => (names[d.id] = d.data().name));
+  namesCache = { at: Date.now(), value: names };
+  return { ...names };
+}
+const readCache = new Map();
+app.use('/api', (req, res, next) => {
+  if (req.method !== 'GET') {
+    readCache.clear();
+    res.on('finish', () => { // 저장이 끝난 뒤에도 한 번 더 비워서, 저장 중에 읽은 옛 값이 남지 않게 해요
+      readCache.clear();
+      if (req.path === '/admin/import') { clearNames(); clearAllBoards(); }
+    });
+  }
+  next();
+});
+function cachedGet(ttlMs) { // guard 다음에 끼워 써요 (권한 확인은 항상 먼저 해요)
+  return (req, res, next) => {
+    const key = (req.headers.authorization || req.query.t || '') + '|' + req.originalUrl;
+    const hit = readCache.get(key);
+    if (hit && Date.now() - hit.at < ttlMs) return res.json(hit.body);
+    const orig = res.json.bind(res);
+    res.json = (body) => { if (res.statusCode === 200) readCache.set(key, { at: Date.now(), body }); return orig(body); };
+    next();
+  };
+}
 
 // 한국 시간(KST) 기준 날짜
 const kst = (d) => new Date(d.getTime() + 9 * 3600 * 1000);
@@ -1019,7 +1059,7 @@ app.get('/api/jobs', auth, wrap(async (req, res) => {
   }));
 }));
 
-app.get('/api/admin/assign', guard('teacher'), wrap(async (req, res) => {
+app.get('/api/admin/assign', guard('teacher'), cachedGet(10000), wrap(async (req, res) => {
   const [S, jobs, sSnap, cSnap] = await Promise.all([getSettings(), getJobs(), db.collection('students').get(), db.collection('credits').get()]);
   const by = {};
   cSnap.docs.forEach((d) => { const x = d.data(); (by[x.studentId] = by[x.studentId] || []).push(x); });
@@ -1064,7 +1104,7 @@ app.post('/api/admin/jobs/clear', guard('teacher'), wrap(async (req, res) => {
 // ======================================================================
 //  선생님 모드 — 기본정보 (학생 관리 · 월급 · 조정)
 // ======================================================================
-app.get('/api/admin/students', guard('teacher'), wrap(async (req, res) => {
+app.get('/api/admin/students', guard('teacher'), cachedGet(10000), wrap(async (req, res) => {
   const [S, jobs, sSnap, cSnap] = await Promise.all([
     getSettings(), getJobs(), db.collection('students').get(), db.collection('credits').get(),
   ]);
@@ -1103,12 +1143,14 @@ app.post('/api/admin/students/seed', guard('teacher'), wrap(async (req, res) => 
     created++;
   });
   await batch.commit();
+  clearNames();
   res.json({ ok: true, message: `${created}명을 등록했어요 (처음 비밀번호 ${DEFAULT_PIN})` });
 }));
 app.post('/api/admin/students/:id/rename', guard('teacher'), wrap(async (req, res) => {
   const name = String(req.body.name || '').trim();
   if (!name) throw new UserError('이름을 적어주세요');
   await db.collection('students').doc(req.params.id).update({ name });
+  clearNames();
   res.json({ ok: true, message: '이름을 고쳤어요' });
 }));
 app.post('/api/admin/students/:id/resetpin', guard('teacher'), wrap(async (req, res) => {
@@ -1208,7 +1250,7 @@ async function unpaidTaxes(S) {
     return { name: it.name, paid: target.filter((x) => pset.has(x.id)).length, total: target.length, exempt: all.length - target.length, unpaid: target.filter((x) => !pset.has(x.id)).map((x) => x.name) };
   });
 }
-app.get('/api/admin/treasury', guard('국고관리'), wrap(async (req, res) => {
+app.get('/api/admin/treasury', guard('국고관리'), cachedGet(10000), wrap(async (req, res) => {
   const [S, tSnap, sSnap] = await Promise.all([getSettings(), db.collection('treasury').get(), db.collection('students').get()]);
   const names = {};
   sSnap.docs.forEach((d) => (names[d.id] = d.data().name));
@@ -1250,18 +1292,42 @@ const TEACHER_AUTHOR = '선생님';
 const MAX_PHOTO_CHARS = 700000; // base64 글자 수 (약 500KB)
 const MAX_FILE_BYTES = 700000; // 파일 하나 (약 680KB). Firestore 문서 1MB 제한 때문에 base64로 저장해도 넘지 않는 크기
 const FILE_EXTS = ['md', 'pdf', 'txt'];
+// 보드 글·댓글·추천은 서버가 45초 기억하고, 그 보드에 쓰기가 있으면 바로 비워요. 글 개수는 5분 기억하고 쓰기 때 가감해요.
+const boardCache = { ver: 0, posts: new Map(), counts: null, countsAt: 0 };
+const BOARD_TTL = 45 * 1000, COUNTS_TTL = 5 * 60 * 1000;
+function clearBoard(boardId) { boardCache.ver++; boardCache.posts.delete(String(boardId)); }
+function clearAllBoards() { boardCache.ver++; boardCache.posts.clear(); boardCache.counts = null; }
+function bumpCount(boardId, delta) { boardCache.ver++; if (boardCache.counts) boardCache.counts[boardId] = Math.max(0, (boardCache.counts[boardId] || 0) + delta); }
+async function boardCounts() {
+  if (boardCache.counts && Date.now() - boardCache.countsAt < COUNTS_TTL) return boardCache.counts;
+  const v = boardCache.ver;
+  const snap = await db.collection('boardPosts').get();
+  const counts = {};
+  snap.docs.forEach((d) => { if (!d.data().deleted) counts[d.data().boardId] = (counts[d.data().boardId] || 0) + 1; });
+  if (v === boardCache.ver) { boardCache.counts = counts; boardCache.countsAt = Date.now(); }
+  return counts;
+}
+async function boardRaw(boardId) {
+  const hit = boardCache.posts.get(boardId);
+  if (hit && Date.now() - hit.at < BOARD_TTL) return hit;
+  const v = boardCache.ver;
+  const [ps, cs, ls] = await Promise.all([
+    db.collection('boardPosts').where('boardId', '==', boardId).get(),
+    db.collection('boardComments').where('boardId', '==', boardId).get(),
+    db.collection('boardLikes').where('boardId', '==', boardId).get(),
+  ]);
+  const raw = { at: Date.now(), ps: ps.docs.map((d) => ({ id: d.id, ...d.data() })), cs: cs.docs.map((d) => ({ id: d.id, ...d.data() })), ls: ls.docs.map((d) => d.data()) };
+  if (v === boardCache.ver) boardCache.posts.set(boardId, raw);
+  return raw;
+}
+async function nameOf() { const names = await studentNames(); return (id) => (id === TEACHER_AUTHOR ? TEACHER_AUTHOR : names[id] || id); }
+const postView = (p, nm, me, extra) => ({ id: p.id, name: nm(p.authorId), at: timeStr(p.at.toDate()), text: p.text, link: p.link, photos: p.photoIds || [], files: p.files || [], mine: !!me && p.authorId === me, ...extra });
 const boardOf = (d) => ({ id: d.id, name: d.data().name, desc: d.data().desc || '', comments: d.data().comments !== false, likes: d.data().likes !== false, active: d.data().active !== false });
 
 async function getBoard(id) {
   const d = await db.collection('boards').doc(String(id || '')).get();
   if (!d.exists) throw new UserError('그런 보드가 없어요');
   return boardOf(d);
-}
-async function studentNames() {
-  const snap = await db.collection('students').get();
-  const names = {};
-  snap.docs.forEach((d) => (names[d.id] = d.data().name));
-  return names;
 }
 function cleanPhotos(list, S, keepCount = 0) {
   const arr = (Array.isArray(list) ? list : []).filter((p) => p && p.data);
@@ -1328,18 +1394,18 @@ async function writePost(boardId, authorId, b, S, admin) {
   const postId = newId('B');
   const photoIds = await savePhotos(postId, datas);
   const files = await saveFiles(postId, fileList);
-  await db.collection('boardPosts').doc(postId).set({ boardId: board.id, authorId, at: Timestamp.now(), text, link, photoIds, files, deleted: false, order: -Date.now() });
+  const at = Timestamp.now();
+  await db.collection('boardPosts').doc(postId).set({ boardId: board.id, authorId, at, text, link, photoIds, files, deleted: false, order: -Date.now() });
+  clearBoard(board.id); bumpCount(board.id, 1);
   const extra = [photoIds.length > 1 ? `사진 ${photoIds.length}장` : '', files.length ? `파일 ${files.length}개` : ''].filter(Boolean).join('과 ');
-  return extra ? `${extra}과(와) 함께 올렸어요!` : '올렸어요!';
+  const post = postView({ id: postId, authorId, at, text, link, photoIds, files }, await nameOf(), authorId === TEACHER_AUTHOR ? '' : authorId, { likes: 0, liked: false, comments: [] });
+  return { message: extra ? `${extra}과(와) 함께 올렸어요!` : '올렸어요!', post };
 }
 
 // 보드 목록 (선생님은 숨긴 보드도 보임)
 app.get('/api/board', auth, wrap(async (req, res) => {
   const teacher = req.user.role === 'teacher';
-  const [bs, ps] = await Promise.all([db.collection('boards').get(), db.collection('boardPosts').get()]);
-  const counts = {};
-  ps.docs.forEach((d) => { if (!d.data().deleted) counts[d.data().boardId] = (counts[d.data().boardId] || 0) + 1; });
-  const S = await getSettings();
+  const [bs, counts, S] = await Promise.all([db.collection('boards').get(), boardCounts(), getSettings()]);
   const boards = bs.docs.map((d) => ({ ...boardOf(d), createdMs: d.data().createdMs || 0, count: counts[d.id] || 0 }))
     .filter((b) => teacher || b.active).sort((a, b) => a.createdMs - b.createdMs);
   res.json({ boards, maxPhotos: Number(S.보드최대사진) || 6, maxFiles: Number(S.보드최대파일) || 3, teacher });
@@ -1351,26 +1417,17 @@ app.get('/api/board/:id/posts', auth, wrap(async (req, res) => {
   const me = teacher ? '' : req.user.id;
   const board = await getBoard(req.params.id);
   if (!board.active && !teacher) throw new UserError('볼 수 없는 보드예요');
-  const [ps, cs, ls, names] = await Promise.all([
-    db.collection('boardPosts').where('boardId', '==', board.id).get(),
-    db.collection('boardComments').where('boardId', '==', board.id).get(),
-    db.collection('boardLikes').where('boardId', '==', board.id).get(),
-    studentNames(),
-  ]);
-  const nm = (id) => (id === TEACHER_AUTHOR ? TEACHER_AUTHOR : names[id] || id);
-  const posts = ps.docs.map((d) => ({ id: d.id, ...d.data() })).filter((p) => !p.deleted)
+  const [raw, nm] = await Promise.all([boardRaw(board.id), nameOf()]);
+  const posts = raw.ps.filter((p) => !p.deleted)
     .sort((a, b) => (typeof a.order === 'number' ? a.order : -a.at.toMillis()) - (typeof b.order === 'number' ? b.order : -b.at.toMillis())).slice(0, 40);
   const byPost = {};
   posts.forEach((p) => (byPost[p.id] = { likes: 0, liked: false, comments: [] }));
-  ls.docs.forEach((d) => { const x = byPost[d.data().postId]; if (!x) return; x.likes++; if (d.data().studentId === me) x.liked = true; });
-  cs.docs.map((d) => ({ id: d.id, ...d.data() })).filter((c) => !c.deleted).sort((a, b) => a.at.toMillis() - b.at.toMillis())
+  raw.ls.forEach((l) => { const x = byPost[l.postId]; if (!x) return; x.likes++; if (l.studentId === me) x.liked = true; });
+  raw.cs.filter((c) => !c.deleted).sort((a, b) => a.at.toMillis() - b.at.toMillis())
     .forEach((c) => { const x = byPost[c.postId]; if (x) x.comments.push({ id: c.id, name: nm(c.studentId), at: timeStr(c.at.toDate()), text: c.text }); });
   res.json({
     board, teacher,
-    posts: posts.map((p) => ({
-      id: p.id, name: nm(p.authorId), at: timeStr(p.at.toDate()), text: p.text, link: p.link, photos: p.photoIds || [], files: p.files || [],
-      mine: !!me && p.authorId === me, ...byPost[p.id],
-    })),
+    posts: posts.map((p) => postView(p, nm, me, byPost[p.id])),
   });
 }));
 
@@ -1398,8 +1455,8 @@ app.get('/api/board/file/:id', auth, wrap(async (req, res) => {
 
 app.post('/api/board/post', auth, studentOnly, wrap(async (req, res) => {
   const S = await getSettings();
-  const message = await writePost(req.body.boardId, req.user.id, req.body, S, false);
-  res.json({ ok: true, message });
+  const r = await writePost(req.body.boardId, req.user.id, req.body, S, false);
+  res.json({ ok: true, message: r.message, post: r.post });
 }));
 
 app.post('/api/board/post/:id/edit', auth, studentOnly, wrap(async (req, res) => {
@@ -1422,7 +1479,9 @@ app.post('/api/board/post/:id/edit', auth, studentOnly, wrap(async (req, res) =>
   await ref.update({ text, link, photoIds: keep.concat(added), files: keepFiles.concat(addedFiles) });
   await Promise.all(old.filter((id) => !keep.includes(id)).map((id) => db.collection('boardPhotos').doc(id).delete()));
   await Promise.all(oldFiles.filter((f) => !keepFiles.some((k) => k.id === f.id)).map((f) => db.collection('boardFiles').doc(f.id).delete()));
-  res.json({ ok: true, message: '글을 고쳤어요' });
+  clearBoard(d.data().boardId);
+  const post = postView({ id: ref.id, authorId: d.data().authorId, at: d.data().at, text, link, photoIds: keep.concat(added), files: keepFiles.concat(addedFiles) }, await nameOf(), req.user.id, {});
+  res.json({ ok: true, message: '글을 고쳤어요', post });
 }));
 
 app.post('/api/board/post/:id/delete', auth, studentOnly, wrap(async (req, res) => {
@@ -1431,6 +1490,7 @@ app.post('/api/board/post/:id/delete', auth, studentOnly, wrap(async (req, res) 
   if (!d.exists || d.data().deleted) throw new UserError('그 글을 찾을 수 없어요');
   if (d.data().authorId !== req.user.id) throw new UserError('내가 쓴 글만 지울 수 있어요');
   await ref.update({ deleted: true });
+  clearBoard(d.data().boardId); bumpCount(d.data().boardId, -1);
   res.json({ ok: true, message: '글을 지웠어요' });
 }));
 
@@ -1446,8 +1506,10 @@ app.post('/api/board/comment', auth, studentOnly, wrap(async (req, res) => {
   const mine = await db.collection('boardComments').where('postId', '==', p.id).get();
   const max = Number(S.글당최대댓글) || 50;
   if (mine.docs.filter((d) => !d.data().deleted).length >= max) throw new UserError(`댓글이 너무 많아요 (${max}개까지)`);
-  await db.collection('boardComments').doc(newId('C')).set({ postId: p.id, boardId: board.id, studentId: req.user.id, at: Timestamp.now(), text, deleted: false });
-  res.json({ ok: true, message: '댓글을 달았어요' });
+  const cid = newId('C'), at = Timestamp.now();
+  await db.collection('boardComments').doc(cid).set({ postId: p.id, boardId: board.id, studentId: req.user.id, at, text, deleted: false });
+  clearBoard(board.id);
+  res.json({ ok: true, message: '댓글을 달았어요', comment: { id: cid, name: (await studentNames())[req.user.id] || req.user.id, at: timeStr(at.toDate()), text } });
 }));
 
 app.post('/api/board/like', auth, studentOnly, wrap(async (req, res) => {
@@ -1462,7 +1524,8 @@ app.post('/api/board/like', auth, studentOnly, wrap(async (req, res) => {
     t.set(ref, { postId: p.id, boardId: board.id, studentId: req.user.id, at: Timestamp.now() });
     return false;
   });
-  res.json({ ok: true, message: cancelled ? '추천을 취소했어요' : '추천했어요!' });
+  clearBoard(board.id);
+  res.json({ ok: true, message: cancelled ? '추천을 취소했어요' : '추천했어요!', liked: !cancelled });
 }));
 
 // 선생님
@@ -1481,6 +1544,7 @@ app.post('/api/admin/board/:id', guard('teacher'), wrap(async (req, res) => {
   if (b.desc !== undefined) patch.desc = String(b.desc).trim();
   ['comments', 'likes', 'active'].forEach((k) => { if (b[k] !== undefined) patch[k] = !!b[k]; });
   await db.collection('boards').doc(req.params.id).update(patch);
+  clearBoard(req.params.id);
   res.json({ ok: true, message: '저장했어요' });
 }));
 app.post('/api/admin/board/:id/delete', guard('teacher'), wrap(async (req, res) => {
@@ -1496,12 +1560,13 @@ app.post('/api/admin/board/:id/delete', guard('teacher'), wrap(async (req, res) 
     }
   }
   await db.collection('boards').doc(board.id).delete();
+  clearAllBoards();
   res.json({ ok: true, message: `"${board.name}" 보드를 지웠어요` });
 }));
 app.post('/api/admin/board/:id/post', guard('teacher'), wrap(async (req, res) => {
   const S = await getSettings();
-  const message = await writePost(req.params.id, TEACHER_AUTHOR, req.body, S, true);
-  res.json({ ok: true, message });
+  const r = await writePost(req.params.id, TEACHER_AUTHOR, req.body, S, true);
+  res.json({ ok: true, message: r.message, post: r.post });
 }));
 app.post('/api/admin/board/:id/order', guard('teacher'), wrap(async (req, res) => {
   const ids = Array.isArray(req.body.ids) ? req.body.ids.map(String).slice(0, 100) : [];
@@ -1511,18 +1576,23 @@ app.post('/api/admin/board/:id/order', guard('teacher'), wrap(async (req, res) =
   const T = Date.now(), b = db.batch();
   ids.filter((id) => ok.has(id)).forEach((id, i) => b.update(db.collection('boardPosts').doc(id), { order: -T + i }));
   await b.commit();
+  clearBoard(req.params.id);
   res.json({ ok: true, message: '순서를 바꿨어요' });
 }));
 app.post('/api/admin/board/post/:id/delete', guard('teacher'), wrap(async (req, res) => {
   const ref = db.collection('boardPosts').doc(String(req.params.id));
-  if (!(await ref.get()).exists) throw new UserError('그 글을 찾을 수 없어요');
+  const pd = await ref.get();
+  if (!pd.exists) throw new UserError('그 글을 찾을 수 없어요');
   await ref.update({ deleted: true });
+  clearBoard(pd.data().boardId); if (!pd.data().deleted) bumpCount(pd.data().boardId, -1);
   res.json({ ok: true, message: '글을 숨겼어요' });
 }));
 app.post('/api/admin/board/comment/:id/delete', guard('teacher'), wrap(async (req, res) => {
   const ref = db.collection('boardComments').doc(String(req.params.id));
-  if (!(await ref.get()).exists) throw new UserError('댓글을 찾을 수 없어요');
+  const cd = await ref.get();
+  if (!cd.exists) throw new UserError('댓글을 찾을 수 없어요');
   await ref.update({ deleted: true });
+  clearBoard(cd.data().boardId);
   res.json({ ok: true, message: '댓글을 숨겼어요' });
 }));
 
@@ -2234,6 +2304,7 @@ app.post('/api/admin/boards/wipe-all', guard('teacher'), wrap(async (req, res) =
     for (let i = 0; i < snap.docs.length; i += 400) { const b = db.batch(); snap.docs.slice(i, i + 400).forEach((d) => b.delete(d.ref)); await b.commit(); }
     n += snap.size;
   }
+  clearAllBoards();
   okMsg(res, `보드를 모두 지웠어요 (${n}개)`);
 }));
 

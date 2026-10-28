@@ -1441,15 +1441,7 @@ document.addEventListener('drop', (e) => {
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches && e.target.matches('#bfull .post')) { e.preventDefault(); ACT.bPost({ id: e.target.dataset.pid }); } });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && st.boardId && $('#modal').hidden) ACT.bBack(); });
-setInterval(async () => {
-  if (document.hidden || !st.w || !st.w.submit || st.w.subBusy || !(st.tab === 'work' || st.tab === 'etc')) return;
-  if (document.activeElement && document.activeElement.id === 'subItem') return;
-  try { const r = await api('/api/work/submit'); if (st.w.subBusy) return; if (JSON.stringify(r.status) !== JSON.stringify(st.w.submit.status) || r.item !== st.w.submit.item) { st.w.submit = r; if (st.tab === 'work') renderWork(); renderInfo(); } } catch (_) {}
-}, 5000);
-setInterval(async () => {
-  if (document.hidden || !st.w || !st.w.asgBoardId || st.w.asgBusy || !st.w.asgBoard || !(st.tab === 'work' || st.tab === 'etc')) return;
-  try { const r = await api(`/api/work/assignments/${encodeURIComponent(st.w.asgBoardId)}${asQ()}`); if (st.w.asgBusy) return; if (JSON.stringify([r.status, r.students, r.assignment.status]) !== JSON.stringify([st.w.asgBoard.status, st.w.asgBoard.students, st.w.asgBoard.assignment.status])) { st.w.asgBoard = r; asgRender(); } } catch (_) {}
-}, 5000);
+// 다른 친구가 바꾼 것은 자동으로 확인하지 않아요 (서버 읽기를 아끼려고). 필요하면 '새로고침'을 눌러요.
 /* 사진 크게 보기: 같은 글의 사진을 좌우로 넘겨 봐요 (방향키 · 화살표 · 화면 밀기) */
 const LB = { ids: [], i: 0, x0: null };
 function lightboxClose() { const l = document.getElementById('lbx'); if (l) l.remove(); LB.ids = []; }
@@ -1490,6 +1482,13 @@ document.addEventListener('touchend', (e) => {
   const dx = e.changedTouches[0].clientX - LB.x0; LB.x0 = null;
   if (Math.abs(dx) > 50) lightboxGo(dx < 0 ? 1 : -1);
 }, { passive: true });
+async function boardRemovePost(id, path) {
+  const r = await run('처리하는 중이에요', () => api(path, { method: 'POST', body: {} }));
+  if (!r) return;
+  closeModal(); toast(r.message);
+  if (st.posts && st.posts.posts) st.posts.posts = st.posts.posts.filter((p) => p.id !== id);
+  renderBoardFull();
+}
 const BOARD_ACT = {
   impPreview: () => impSend(false),
   impRun: () => openModal(`<h3>가져올까요?</h3><p>같은 번호의 학생이 이미 있으면 이름·직업·자리만 갱신하고, 잔액과 비밀번호는 그대로 둬요. 직업·상점·이자율 목록은 파일 내용으로 바뀌어요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="impGo">가져오기</button></div>`),
@@ -1513,17 +1512,41 @@ const BOARD_ACT = {
     if (c.mode === 'edit') { path = `/api/board/post/${c.postId}/edit`; body.keep = c.keep; body.keepFiles = c.keepFiles.map((f) => f.id); }
     else if (isTeacher()) path = `/api/admin/board/${st.boardId}/post`;
     else { path = '/api/board/post'; body.boardId = st.boardId; }
-    await boardDo('올리는 중이에요', path, body, afterBoards);
+    const r = await run('올리는 중이에요', () => api(path, { method: 'POST', body }));
+    if (!r) return;
+    closeModal(); toast(r.message);
+    const list = st.posts && st.posts.posts;
+    if (!list || !r.post) { await afterBoards(); return; }
+    if (c.mode === 'edit') { const p = list.find((x) => x.id === c.postId); if (p) Object.assign(p, r.post); else await reloadPosts(); }
+    else list.unshift(r.post);
+    renderBoardFull();
   },
   bDel: (d) => openModal(`<h3>이 글을 지울까요?</h3><p>지운 글은 보드에서 사라져요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="bDelGo" data-id="${esc(d.id)}">지우기</button></div>`),
-  bDelGo: (d) => boardDo('지우는 중이에요', `/api/board/post/${d.id}/delete`, {}, afterBoards),
+  bDelGo: (d) => boardRemovePost(d.id, `/api/board/post/${d.id}/delete`),
   bAdmDel: (d) => openModal(`<h3>이 글을 숨길까요?</h3><p>학생들에게 보이지 않게 돼요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="bAdmDelGo" data-id="${esc(d.id)}">숨기기</button></div>`),
-  bAdmDelGo: (d) => boardDo('처리하는 중이에요', `/api/admin/board/post/${d.id}/delete`, {}, afterBoards),
-  bCmtDel: (d) => boardDo('처리하는 중이에요', `/api/admin/board/comment/${d.id}/delete`, {}, reloadPosts),
-  bLike: (d) => boardDo('', '/api/board/like', { postId: d.id }, reloadPosts),
+  bAdmDelGo: (d) => boardRemovePost(d.id, `/api/admin/board/post/${d.id}/delete`),
+  bCmtDel: async (d) => {
+    const r = await run('처리하는 중이에요', () => api(`/api/admin/board/comment/${d.id}/delete`, { method: 'POST', body: {} }));
+    if (!r) return;
+    toast(r.message);
+    ((st.posts || {}).posts || []).forEach((p) => { p.comments = p.comments.filter((c) => c.id !== d.id); });
+    renderBoardFull();
+  },
+  // 추천·댓글은 화면에 먼저 반영하고 서버에는 저장만 보내요 (서버 읽기를 아끼려고)
+  bLike: async (d) => {
+    const p = ((st.posts || {}).posts || []).find((x) => x.id === d.id); if (!p || p.likeBusy) return;
+    const was = p.liked; p.likeBusy = true; p.liked = !was; p.likes += was ? -1 : 1; renderBoardFull();
+    try { await api('/api/board/like', { method: 'POST', body: { postId: d.id } }); }
+    catch (e) { p.liked = was; p.likes += was ? 1 : -1; toast(e.message, true); }
+    p.likeBusy = false; renderBoardFull();
+  },
   bCmt: async (d) => {
     const text = val('cm_' + d.id).trim(); if (!text) return toast('댓글을 적어주세요', true);
-    await boardDo('달고 있어요', '/api/board/comment', { postId: d.id, text }, reloadPosts);
+    const r = await run('달고 있어요', () => api('/api/board/comment', { method: 'POST', body: { postId: d.id, text } }));
+    if (!r) return;
+    const p = ((st.posts || {}).posts || []).find((x) => x.id === d.id);
+    if (p && r.comment) p.comments.push(r.comment); else await reloadPosts();
+    toast(r.message); renderBoardFull();
   },
   bPhoto: (d) => lightboxOpen(d.id),
   bdNew: async () => {
@@ -1728,7 +1751,7 @@ function submitHtml(teacher) {
   if (!v) { loadSubmit(); return '<p class="note">불러오는 중…</p>'; }
   const n1 = Object.values(v.status).filter((x) => x === '제출').length, n2 = Object.values(v.status).filter((x) => x === '미제출').length;
   const cards = v.students.map((s) => { const x = v.status[s.id] || ''; return `<div class="subc ${x === '제출' ? 'ok' : x === '미제출' ? 'no' : ''}"><b>${esc(s.name)}</b><div class="ox"><button type="button" class="o ${x === '제출' ? 'on' : ''}" data-act="subSet" data-id="${esc(s.id)}" data-s="제출" aria-pressed="${x === '제출'}" aria-label="${esc(s.name)} 제출">O 제출</button><button type="button" class="x ${x === '미제출' ? 'on' : ''}" data-act="subSet" data-id="${esc(s.id)}" data-s="미제출" aria-pressed="${x === '미제출'}" aria-label="${esc(s.name)} 미제출">X 미제출</button></div></div>`; }).join('');
-  return `<p class="note">친구마다 <b>제출</b> 또는 <b>미제출</b> 버튼을 누르면 바로 바뀌어요. 같은 버튼을 한 번 더 누르면 체크가 지워져요. 두 명이 함께 체크해도 같은 화면이 공유돼요(몇 초마다 새로 고쳐요). ${teacher ? '다 되면 “기록으로 저장”으로 신용점수에 반영해요.' : '기록 저장은 선생님이 해요.'}</p>
+  return `<p class="note">친구마다 <b>제출</b> 또는 <b>미제출</b> 버튼을 누르면 바로 바뀌어요. 같은 버튼을 한 번 더 누르면 체크가 지워져요. 두 명이 함께 체크해도 같은 화면이 공유되지만 다른 사람이 체크한 것은 “새로고침”을 눌러야 보여요. ${teacher ? '다 되면 “기록으로 저장”으로 신용점수에 반영해요.' : '기록 저장은 선생님이 해요.'}</p>
     <div class="form"><div class="field"><label for="subItem">항목 이름</label><input id="subItem" maxlength="60" value="${esc(v.item)}" placeholder="예) 수학 숙제"></div></div>
     <div class="row-btn" style="margin:6px 0"><button type="button" class="btn tiny gray" data-act="subAll" data-id="제출">모두 제출</button><button type="button" class="btn tiny gray" data-act="subAll" data-id="미제출">모두 미제출</button><button type="button" class="btn tiny gray" data-act="subAll" data-id="">모두 지우기</button><button type="button" class="btn tiny gray" data-act="subReload">새로고침</button>${teacher ? '<button type="button" class="btn tiny" data-act="subSave">기록으로 저장</button>' : ''}</div>
     <p class="note" style="margin:6px 0"><b>제출 ${n1}명 · 미제출 ${n2}명 · 아직 ${v.students.length - n1 - n2}명</b>${v.by ? ` · 마지막 수정: ${esc(v.by)}` : ''}</p>
@@ -1756,7 +1779,7 @@ function asgBoardHtml(teacher) {
   const end = !can ? '<p class="note">이미 선생님께 보낸 과제라 더 고칠 수 없어요.</p>' : teacher
     ? `${a.status === '검토대기' ? '<button type="button" class="btn small gray" data-act="asgReturn">통계청에 돌려보내기</button>' : ''}<button type="button" class="btn small" data-act="asgSaveAsk">최종 저장하고 마감하기</button>`
     : '<button type="button" class="btn small" data-act="asgSend">선생님께 보내기</button><p class="note">보내면 친구들 화면에서 이 과제가 사라지고, 더 고칠 수 없어요.</p>';
-  return `<div class="row-btn" style="justify-content:flex-start;align-items:center;margin:0 0 8px"><button type="button" class="btn tiny gray" data-act="asgBack">↩ 과제 목록</button><b style="font-size:16px">${esc(a.title)}</b><span class="badge ${a.status === '검토대기' ? 'warn' : a.status === '마감' ? 'gray' : 'green'}">${esc(a.status)}</span>${a.penalty ? '<span class="badge warn">미제출 감점</span>' : ''}${v.by ? `<span class="note" style="margin:0 0 0 auto">최근 수정: ${esc(v.by)}</span>` : ''}</div>
+  return `<div class="row-btn" style="justify-content:flex-start;align-items:center;margin:0 0 8px"><button type="button" class="btn tiny gray" data-act="asgBack">↩ 과제 목록</button><button type="button" class="btn tiny gray" data-act="asgBoardReload">새로고침</button><b style="font-size:16px">${esc(a.title)}</b><span class="badge ${a.status === '검토대기' ? 'warn' : a.status === '마감' ? 'gray' : 'green'}">${esc(a.status)}</span>${a.penalty ? '<span class="badge warn">미제출 감점</span>' : ''}${v.by ? `<span class="note" style="margin:0 0 0 auto">최근 수정: ${esc(v.by)}</span>` : ''}</div>
     ${a.desc ? `<p class="note">${esc(a.desc)}</p>` : ''}<div class="row-btn" style="margin:6px 0">${tools}</div>
     <p class="note" style="margin:6px 0"><b>제출 ${n1}명 · 미제출 ${n2}명 · 아직 ${left}명</b>${teacher && left && can ? ' (저장하면 아직 체크 안 한 친구는 제출로 처리돼요)' : ''}</p><div class="subgrid">${cards}</div>
     <div class="row-btn" style="margin-top:14px">${end}${teacher && a.status !== '마감' ? `<button type="button" class="btn small gray" data-act="asgPen" data-on="${a.penalty ? '0' : '1'}">미제출 감점 ${a.penalty ? '끄기' : '켜기'}</button>` : ''}${teacher ? '<button type="button" class="btn small red" data-act="asgDel">이 과제 지우기</button>' : ''}</div>`;
@@ -1857,6 +1880,7 @@ const WORK_ACT = {
   asgOpen: (d) => { st.w.asgBoardId = d.id; st.w.asgBoard = null; loadAsgBoard(d.id); },
   asgBack: () => { st.w.asgBoardId = ''; st.w.asgBoard = null; st.w.asgList = null; asgRender(); },
   asgReload: () => { st.w.asgList = null; asgRender(); },
+  asgBoardReload: () => loadAsgBoard(st.w.asgBoardId),
   asgNew: async () => { const r = await run('내는 중이에요', () => api('/api/admin/assignments', { method: 'POST', body: { title: val('asgTitle'), desc: val('asgDesc'), penalty: !!(document.getElementById('asgPen') && document.getElementById('asgPen').checked) } })); if (r) { toast(r.message); st.w.asgList = null; asgRender(); } },
   asgMark: async (d) => {
     const v = st.w.asgBoard, cur_ = v.status[d.id] || '', next = cur_ === d.s ? '' : d.s;
