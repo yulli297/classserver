@@ -419,6 +419,7 @@ $('#lswitch').onclick = () => {
   $('#lpin').inputMode = teacherLogin ? 'text' : 'numeric';
   $('#lswitch').textContent = teacherLogin ? '학생으로 들어가기' : '선생님으로 들어가기';
   $('#lerr').textContent = '';
+  if (teacherLogin) initGoogle(false); else $('#gwrap').hidden = true; // 구글 로그인은 선생님 로그인에서만 보여요
 };
 $('#lform').onsubmit = async (e) => {
   e.preventDefault();
@@ -435,7 +436,7 @@ $('#lform').onsubmit = async (e) => {
 };
 /* ---------- 구글 계정으로 선생님 자동 로그인 ---------- */
 // 서버에 구글 클라이언트 ID가 설정돼 있을 때만 보여요. 선생님 계정 목록은 서버가 확인해요.
-let googleReady = false;
+let googleReady = false, googleLoading = false;
 async function googleCredential(resp) {
   if (!resp || !resp.credential) return;
   $('#lerr').textContent = '';
@@ -444,24 +445,34 @@ async function googleCredential(resp) {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || '서버에 문제가 생겼어요');
     st.token = j.token; saveToken();
+    try { localStorage.setItem('pigteacherdev', '1'); } catch (e) {} // 선생님이 구글로 들어온 기기는 다음부터 자동 로그인 안내가 떠요
     await enter();
   } catch (err) { $('#lerr').textContent = err.message; }
 }
+const isTeacherDevice = () => { try { return localStorage.getItem('pigteacherdev') === '1'; } catch (e) { return false; } };
 let googleClientId = '';
 // auto가 true면 이 기기에서 구글에 이미 로그인돼 있을 때 바로 들어가요. 나가기 뒤에는 false로 불러서 자동으로 다시 들어가지 않게 해요.
 function initGoogle(auto) {
-  if (!googleClientId || googleReady) return;
+  if (!googleClientId) return;
+  if (googleReady) { if (teacherLogin) showGoogleButton(); return; }
+  if (googleLoading) return;
+  googleLoading = true;
   const s = document.createElement('script');
   s.src = 'https://accounts.google.com/gsi/client'; s.async = true; s.defer = true;
   s.onload = () => {
     if (!window.google || !google.accounts || !google.accounts.id) return;
     googleReady = true;
     google.accounts.id.initialize({ client_id: googleClientId, callback: googleCredential, auto_select: !!auto, cancel_on_tap_outside: false });
-    google.accounts.id.renderButton($('#gbtn'), { theme: 'outline', size: 'large', text: 'signin_with', shape: 'pill', locale: 'ko' });
-    $('#gwrap').hidden = false;
+    if (teacherLogin) showGoogleButton();
     if (auto && !$('#login').hidden) google.accounts.id.prompt();
   };
   document.head.appendChild(s);
+}
+function showGoogleButton() {
+  if (!googleReady) return;
+  $('#gbtn').innerHTML = '';
+  google.accounts.id.renderButton($('#gbtn'), { theme: 'outline', size: 'large', text: 'signin_with', shape: 'pill', locale: 'ko' });
+  $('#gwrap').hidden = false;
 }
 const TEACHER_GREETING = '선생님, 안녕하세요<br>오늘도 행복하세요';
 
@@ -472,7 +483,6 @@ function logout() {
   st.adm = { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null, approvals: null, jobs: null }; st.w = {};
   st.tm = { info: false, shop: false, bank: false, jobs: false, board: false }; st.tab = 'info'; st.board = null; st.boardId = ''; st.posts = null; renderBoardFull();
   closeModal(); $('#app').hidden = true; $('#login').hidden = false; $('#lpin').value = '';
-  initGoogle(false);
 }
 $('#logout').onclick = logout;
 
@@ -1967,7 +1977,7 @@ document.addEventListener('change', async (e) => {
   const t = loadToken();
   if (t) { st.token = t; try { await enter(); return; } catch (e) { st.token = null; saveToken(); } }
   $('#login').hidden = false;
-  initGoogle(true);
+  if (isTeacherDevice()) initGoogle(true); // 선생님 기기만 구글 자동 로그인 안내가 떠요. 학생 기기는 구글 코드를 불러오지도 않아요
 })();
 </script>
 </body>
