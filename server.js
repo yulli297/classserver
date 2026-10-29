@@ -266,13 +266,47 @@ async function studentNames() {
   namesCache = { at: Date.now(), value: names };
   return { ...names };
 }
+// 국고·신용 기록: 한 번 전부 읽어 두고, 그 뒤에는 새로 생긴 기록만 이어서 읽어요.
+//   (기록은 쌓이기만 해요. 무엇이든 저장이 끝나면 '새 기록이 있을 수 있음' 표시 → 다음에 최근 2분 기록만 확인)
+//   서버가 잠들었다 깨면 다시 전부 읽고, 6시간마다 한 번 전부 다시 읽어요(콘솔에서 직접 고친 것 반영).
+function appendCache(coll) {
+  const c = { rows: null, at: 0, maxMs: 0, dirty: false, p: null };
+  const note = (id, x) => { c.rows.set(id, x); const ms = x.at && x.at.toMillis ? x.at.toMillis() : 0; if (ms > c.maxMs) c.maxMs = ms; };
+  async function load() {
+    if (!c.rows || Date.now() - c.at > 6 * 3600 * 1000) {
+      c.dirty = false;
+      const snap = await db.collection(coll).get();
+      c.rows = new Map(); c.maxMs = 0; snap.docs.forEach((d) => note(d.id, d.data())); c.at = Date.now();
+    } else if (c.dirty) {
+      c.dirty = false;
+      const snap = await db.collection(coll).where('at', '>=', Timestamp.fromMillis(Math.max(0, c.maxMs - 120000))).get();
+      snap.docs.forEach((d) => note(d.id, d.data()));
+    }
+  }
+  return {
+    dirty() { c.dirty = true; },
+    clear() { c.rows = null; },
+    async all() {
+      while (c.p) await c.p;                       // 동시에 여러 번 읽지 않게 해요
+      if (!c.rows || c.dirty || Date.now() - c.at > 6 * 3600 * 1000) { c.p = load().finally(() => { c.p = null; }); await c.p; }
+      return [...c.rows.values()];
+    },
+  };
+}
+const treasuryC = appendCache('treasury'), creditC = appendCache('credits');
+const treasuryTotal = async () => (await treasuryC.all()).reduce((s, r) => s + (r.amount || 0), 0);
+async function creditsByStudent() {
+  const by = {};
+  (await creditC.all()).forEach((x) => { (by[x.studentId] = by[x.studentId] || []).push(x); });
+  return by;
+}
 const readCache = new Map();
 app.use('/api', (req, res, next) => {
   if (req.method !== 'GET') {
     readCache.clear();
     res.on('finish', () => { // 저장이 끝난 뒤에도 한 번 더 비워서, 저장 중에 읽은 옛 값이 남지 않게 해요
-      readCache.clear();
-      if (req.path === '/admin/import') { clearNames(); clearAllBoards(); }
+      readCache.clear(); treasuryC.dirty(); creditC.dirty();
+      if (req.path === '/admin/import') { clearNames(); clearAllBoards(); treasuryC.clear(); creditC.clear(); }
     });
   }
   next();
@@ -464,8 +498,7 @@ function creditSummary(rows, S) {
   return { start, earned, adjust, total, grade: gradeOf(total, S.신용등급컷), submitted, missed };
 }
 async function creditRows(studentId) {
-  const snap = await db.collection('credits').where('studentId', '==', studentId).get();
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return (await creditC.all()).filter((x) => x.studentId === studentId);
 }
 const netPay = (salary, S) => Math.round((salary * (100 - Number(S.소득세율))) / 100);
 
@@ -500,11 +533,27 @@ app.get('/api/whoami', auth, wrap(async (req, res) => {
   res.json({ role: 'student', id: req.user.id, name: d.exists ? d.data().name : '', perms: job ? job.perms || [] : [], job: job ? { id: job.id, name: job.name, desc: job.desc || '', daily: job.daily || [], periodic: job.periodic || [], reportable: !!job.reportable } : null });
 }));
 
+// 최근 거래만 읽어요. Firestore 색인(ledger: studentId 오름차순 + at 내림차순)이 필요해요.
+// 색인이 아직 없으면 예전처럼 전부 읽고(화면은 정상), 10분 뒤 다시 색인을 써 봐요.
+let ledgerIdxFailAt = 0;
+async function recentLedger(id, limit) {
+  if (Date.now() - ledgerIdxFailAt > 10 * 60 * 1000) {
+    try {
+      const snap = await db.collection('ledger').where('studentId', '==', id).orderBy('at', 'desc').limit(limit).get();
+      return snap.docs.map((d) => d.data());
+    } catch (e) {
+      if (e.code !== 9 && !/index/i.test(String(e.message))) throw e;
+      ledgerIdxFailAt = Date.now();
+      console.warn('[색인 필요] 최근 내역 색인이 아직 없어요. 아래 주소를 열어 색인을 만들어 주세요:\n' + e.message);
+    }
+  }
+  const snap = await db.collection('ledger').where('studentId', '==', id).get();
+  return snap.docs.map((d) => d.data()).sort((a, b) => b.at.toMillis() - a.at.toMillis()).slice(0, limit);
+}
 app.get('/api/history', auth, wrap(async (req, res) => {
   const id = targetId(req);
   const limit = Math.min(Number(req.query.limit) || 30, 200);
-  const snap = await db.collection('ledger').where('studentId', '==', id).get();
-  const rows = snap.docs.map((d) => d.data()).sort((a, b) => b.at.toMillis() - a.at.toMillis()).slice(0, limit);
+  const rows = await recentLedger(id, limit);
   res.json(rows.map((r) => ({ at: timeStr(r.at.toDate()), kind: r.kind, amount: r.amount, reason: r.reason || r.kind })));
 }));
 
@@ -538,23 +587,30 @@ const isRentItem = (it) => it.category === '세금' && String(it.name).includes(
 const taxKind = (it) => (isRentItem(it) ? '월세' : String(it.name).includes('전기') ? '전기세' : /건강|보험/.test(it.name) ? '건강보험료' : '기타수입');
 const remainingOf = (it) => (it.stock === null || it.stock === undefined ? null : Math.max(0, it.stock - Math.max(0, (it.sold || 0) - (it.baseline || 0))));
 
+// 이번 주기에 세금(월세·전기세·건강보험료)을 낸 학생만 읽어요 (간식·쿠폰 구매 기록은 읽지 않아요)
+async function taxPaidBy(items, cycle) {
+  const tax = items.filter((it) => it.category === '세금');
+  const snaps = await Promise.all(tax.map((it) => db.collection('sales').where('itemId', '==', it.id).where('cycle', '==', cycle).get()));
+  const paidBy = {};
+  tax.forEach((it, i) => { paidBy[it.id] = new Set(snaps[i].docs.map((d) => d.data().studentId)); });
+  return paidBy;
+}
 async function shopView(studentId) {
   const S = await getSettings();
   const now = new Date();
   const cycle = cycleOf(now, startDayOf(S));
   const today = dayStr(now);
-  const [itemsSnap, cycleSnap, todaySnap, studentsSnap] = await Promise.all([
+  const [itemsSnap, todaySnap, me, names] = await Promise.all([
     db.collection('shopItems').get(),
-    db.collection('sales').where('cycle', '==', cycle).get(),
     db.collection('sales').where('day', '==', today).where('studentId', '==', studentId).get(),
-    db.collection('students').get(),
+    db.collection('students').doc(String(studentId)).get(),
+    studentNames(),
   ]);
-  const me = studentsSnap.docs.find((d) => d.id === studentId);
-  if (!me) throw new UserError('학생을 찾을 수 없어요');
+  if (!me.exists) throw new UserError('학생을 찾을 수 없어요');
+  const studentCount = Object.keys(names).length;
   const balance = me.data().balance || 0;
   const rentExempt = !!(me.data().seat && me.data().seatPaid);
-  const paidBy = {}; // 상품별로 이번 주기에 낸 학생들
-  cycleSnap.docs.forEach((d) => { const x = d.data(); (paidBy[x.itemId] = paidBy[x.itemId] || new Set()).add(x.studentId); });
+  const paidBy = await taxPaidBy(itemsSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((it) => it.active !== false), cycle); // 상품별로 이번 주기에 낸 학생들
   const myToday = {};
   todaySnap.docs.forEach((d) => { const x = d.data(); myToday[x.itemId] = (myToday[x.itemId] || 0) + 1; });
 
@@ -575,7 +631,7 @@ async function shopView(studentId) {
       return {
         id: it.id, category: it.category, name: it.name, desc: it.desc || '', price, isRent: rent,
         remaining, limit: it.limit ?? null, myToday: myToday[it.id] || 0, paid,
-        paidCount: paidBy[it.id] ? paidBy[it.id].size : 0, studentCount: studentsSnap.size, blocked,
+        paidCount: paidBy[it.id] ? paidBy[it.id].size : 0, studentCount, blocked,
         exempt: rent && rentExempt,
       };
     })
@@ -665,13 +721,10 @@ function itemFields(b) {
 app.get('/api/admin/shop', guard('상점관리'), wrap(async (req, res) => {
   const S = await getSettings();
   const cycle = cycleOf(new Date(), startDayOf(S));
-  const [itemsSnap, cycleSnap, studentsSnap] = await Promise.all([
-    db.collection('shopItems').get(), db.collection('sales').where('cycle', '==', cycle).get(), db.collection('students').get(),
-  ]);
+  const [itemsSnap, studentsSnap] = await Promise.all([db.collection('shopItems').get(), db.collection('students').get()]);
   const exempt = new Set(studentsSnap.docs.filter((d) => d.data().seat && d.data().seatPaid).map((d) => d.id));
   const allIds = studentsSnap.docs.map((d) => d.id);
-  const paidBy = {};
-  cycleSnap.docs.forEach((d) => { const x = d.data(); (paidBy[x.itemId] = paidBy[x.itemId] || new Set()).add(x.studentId); });
+  const paidBy = await taxPaidBy(itemsSnap.docs.map((d) => ({ id: d.id, ...d.data() })), cycle);
   const list = itemsSnap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.order || 0) - (b.order || 0)).map((it) => {
     const rent = isRentItem(it);
     let tax = null;
@@ -986,7 +1039,7 @@ app.post('/api/bank/cancel', auth, studentOnly, wrap(async (req, res) => {
 
 app.get('/api/admin/bank', guard('은행관리'), wrap(async (req, res) => {
   const [S, rates, depSnap, sSnap, tSnap] = await Promise.all([
-    getSettings(), getRates(), db.collection('deposits').get(), db.collection('students').get(), db.collection('treasury').get(),
+    getSettings(), getRates(), db.collection('deposits').get(), db.collection('students').get(), treasuryTotal(),
   ]);
   const names = {};
   sSnap.docs.forEach((d) => (names[d.id] = d.data().name));
@@ -1000,7 +1053,7 @@ app.get('/api/admin/bank', guard('은행관리'), wrap(async (req, res) => {
     holding: active.filter((x) => !x.matured).sort((a, b) => a.left - b.left).map(view),
     past: all.filter((x) => x.ended).slice(-15).reverse().map(view),
     total: active.reduce((s, x) => s + x.principal, 0),
-    treasury: tSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0),
+    treasury: tSnap,
     rates: Object.values(rates).sort((a, b) => a.days - b.days),
   });
 }));
@@ -1060,9 +1113,7 @@ app.get('/api/jobs', auth, wrap(async (req, res) => {
 }));
 
 app.get('/api/admin/assign', guard('teacher'), cachedGet(10000), wrap(async (req, res) => {
-  const [S, jobs, sSnap, cSnap] = await Promise.all([getSettings(), getJobs(), db.collection('students').get(), db.collection('credits').get()]);
-  const by = {};
-  cSnap.docs.forEach((d) => { const x = d.data(); (by[x.studentId] = by[x.studentId] || []).push(x); });
+  const [S, jobs, sSnap, by] = await Promise.all([getSettings(), getJobs(), db.collection('students').get(), creditsByStudent()]);
   const students = sSnap.docs.map((d) => ({
     id: d.id, name: d.data().name, jobId: d.data().jobId || '',
     creditGrade: creditSummary(by[d.id] || [], S).grade, mathGrade: mathGrade(d.data().math, S),
@@ -1105,11 +1156,7 @@ app.post('/api/admin/jobs/clear', guard('teacher'), wrap(async (req, res) => {
 //  선생님 모드 — 기본정보 (학생 관리 · 월급 · 조정)
 // ======================================================================
 app.get('/api/admin/students', guard('teacher'), cachedGet(10000), wrap(async (req, res) => {
-  const [S, jobs, sSnap, cSnap] = await Promise.all([
-    getSettings(), getJobs(), db.collection('students').get(), db.collection('credits').get(),
-  ]);
-  const byStudent = {};
-  cSnap.docs.forEach((d) => { const x = d.data(); (byStudent[x.studentId] = byStudent[x.studentId] || []).push(x); });
+  const [S, jobs, sSnap, byStudent] = await Promise.all([getSettings(), getJobs(), db.collection('students').get(), creditsByStudent()]);
   const students = sSnap.docs.map((d) => {
     const s = d.data();
     const c = creditSummary(byStudent[d.id] || [], S);
@@ -1121,8 +1168,7 @@ app.get('/api/admin/students', guard('teacher'), cachedGet(10000), wrap(async (r
       jobId: s.jobId || '', job: job ? job.name : '', seat: s.seat || '', seatPaid: !!s.seatPaid,
     };
   }).sort((a, b) => Number(a.id) - Number(b.id));
-  const tSnap = await db.collection('treasury').get();
-  const treasury = tSnap.docs.reduce((sum, d) => sum + (d.data().amount || 0), 0);
+  const treasury = await treasuryTotal();
   res.json({
     students, currency: S.화폐단위, treasury, taxRate: Number(S.소득세율),
     jobs: Object.values(jobs).sort((a, b) => (a.order || 0) - (b.order || 0)).map((j) => ({ id: j.id, name: j.name, salary: j.salary, capacity: j.capacity, source: j.source, count: sSnap.docs.filter((d) => d.data().jobId === j.id).length })),
@@ -1240,9 +1286,8 @@ app.post('/api/admin/credit', guard('teacher'), wrap(async (req, res) => {
 // 이번 세금 주기에 아직 안 낸 학생 (월세는 자리를 산 학생 제외)
 async function unpaidTaxes(S) {
   const cycle = cycleOf(new Date(), startDayOf(S));
-  const [items, sales, studs] = await Promise.all([db.collection('shopItems').get(), db.collection('sales').where('cycle', '==', cycle).get(), db.collection('students').get()]);
-  const paid = {};
-  sales.docs.forEach((d) => { const x = d.data(); (paid[x.itemId] = paid[x.itemId] || new Set()).add(x.studentId); });
+  const [items, studs] = await Promise.all([db.collection('shopItems').get(), db.collection('students').get()]);
+  const paid = await taxPaidBy(items.docs.map((d) => ({ id: d.id, ...d.data() })).filter((it) => it.active !== false), cycle);
   const all = studs.docs.map((d) => ({ id: d.id, ...d.data() }));
   return items.docs.map((d) => ({ id: d.id, ...d.data() })).filter((it) => it.category === '세금' && it.active !== false).sort((a, b) => (a.order || 0) - (b.order || 0)).map((it) => {
     const target = all.filter((x) => !(isRentItem(it) && x.seat && x.seatPaid));
@@ -1251,12 +1296,12 @@ async function unpaidTaxes(S) {
   });
 }
 app.get('/api/admin/treasury', guard('국고관리'), cachedGet(10000), wrap(async (req, res) => {
-  const [S, tSnap, sSnap] = await Promise.all([getSettings(), db.collection('treasury').get(), db.collection('students').get()]);
+  const [S, tRows, sSnap] = await Promise.all([getSettings(), treasuryC.all(), db.collection('students').get()]);
   const names = {};
   sSnap.docs.forEach((d) => (names[d.id] = d.data().name));
   const income = {}, outgo = {}, monthly = {};
   let totalIn = 0, totalOut = 0;
-  const rows = tSnap.docs.map((d) => d.data()).filter((r) => r.amount);
+  const rows = tRows.filter((r) => r.amount && r.at);
   rows.forEach((r) => {
     const month = dayStr(r.at.toDate()).slice(0, 7);
     monthly[month] = monthly[month] || { in: 0, out: 0 };
@@ -2148,7 +2193,7 @@ function asgSummary(id, x, total) {
   };
 }
 async function asgList(statuses) {
-  const [snap, names] = await Promise.all([ASG().get(), asgNames()]);
+  const [snap, names] = await Promise.all([ASG().where('status', 'in', statuses).get(), asgNames()]); // 필요한 상태의 과제만 읽어요
   const total = Object.keys(names).length;
   return { total, list: snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => statuses.includes(x.status))
     .sort((a, b) => (b.createdMs || 0) - (a.createdMs || 0)).map((x) => asgSummary(x.id, x, total)) };
@@ -2179,9 +2224,9 @@ const editable = (req) => (req.user.role === 'teacher' ? ['진행중', '검토�
 // 학생: 내 과제 (진행중인 것만) · 다했어요
 app.get('/api/assignments/mine', auth, wrap(async (req, res) => {
   const id = targetId(req), S = await getSettings();
-  const { list } = await asgList(['진행중']);
-  const snap = await ASG().get();
-  const doneOf = {}; snap.docs.forEach((d) => (doneOf[d.id] = (d.data().done || {})[id]));
+  const snap = await ASG().where('status', '==', '진행중').get();   // 진행 중인 과제만 읽어요
+  const list = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdMs || 0) - (a.createdMs || 0));
+  const doneOf = {}; list.forEach((x) => (doneOf[x.id] = (x.done || {})[id]));
   res.json({ assignments: list.slice(0, Number(S.과제최대개수) || 6).map((a) => ({ id: a.id, title: a.title, desc: a.desc, day: a.day, penalty: !!a.penalty, done: !!doneOf[a.id], doneAt: doneOf[a.id] ? timeStr(new Date(doneOf[a.id])) : '' })) });
 }));
 app.post('/api/assignments/:id/done', auth, studentOnly, wrap(async (req, res) => {
@@ -2264,9 +2309,7 @@ app.post('/api/admin/assignments/:id/delete', guard('teacher'), wrap(async (req,
 
 // ---------- 신용등급 평가원: 현황 · 등급 기준 ----------
 async function creditBoard() {
-  const [S, studs, cr] = await Promise.all([getSettings(), db.collection('students').get(), db.collection('credits').get()]);
-  const by = {};
-  cr.docs.forEach((d) => { const x = d.data(); (by[x.studentId] = by[x.studentId] || []).push(x); });
+  const [S, studs, by] = await Promise.all([getSettings(), db.collection('students').get(), creditsByStudent()]);
   const list = studs.docs.map((d) => { const sm = creditSummary(by[d.id] || [], S); return { id: d.id, name: d.data().name, total: sm.total, grade: sm.grade, submitted: sm.submitted, missed: sm.missed }; }).sort((a, b) => b.total - a.total);
   return { S, list };
 }
