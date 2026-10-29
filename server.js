@@ -389,7 +389,7 @@ app.post('/api/login/google', wrap(async (req, res) => {
   const email = String(info.email || '').toLowerCase();
   if (!email || String(info.email_verified) !== 'true') throw new UserError('확인된 구글 계정이 아니에요');
   if (!TEACHER_GOOGLE_EMAILS.includes(email)) throw new UserError('선생님 계정이 아니에요. 학생은 번호와 비밀번호로 들어가요');
-  res.json({ token: makeToken({ role: 'teacher', via: 'google' }), role: 'teacher' });
+  res.json({ token: makeToken({ role: 'teacher', via: 'google' }, 24 * 60), role: 'teacher' });
 }));
 
 app.post('/api/pin', auth, studentOnly, wrap(async (req, res) => {

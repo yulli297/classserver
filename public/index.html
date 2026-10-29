@@ -371,11 +371,13 @@ const can = (p) => isTeacher() || st.perms.includes(p);
 const cur = () => (st.info ? st.info.currency : '행복');
 
 // 학생은 이 기기에 로그인 상태를 남겨서(60일) 다음에 열면 바로 들어와요. 선생님은 창을 닫으면 풀려요.
-function tokenRole(t) { try { return JSON.parse(atob(t.split('.')[0].replace(/-/g, '+').replace(/_/g, '/'))).role; } catch (e) { return ''; } }
+function tokenInfo(t) { try { return JSON.parse(atob(t.split('.')[0].replace(/-/g, '+').replace(/_/g, '/'))); } catch (e) { return {}; } }
+function tokenRole(t) { return tokenInfo(t).role || ''; }
+const tokenKeep = (t) => { const i = tokenInfo(t); return i.role === 'student' || i.via === 'google'; }; // 학생과 구글로 들어온 선생님은 이 기기에 저장해요
 function saveToken() {
   try {
     sessionStorage.removeItem('pigtoken'); localStorage.removeItem('pigtoken');
-    if (st.token) (tokenRole(st.token) === 'student' ? localStorage : sessionStorage).setItem('pigtoken', st.token);
+    if (st.token) (tokenKeep(st.token) ? localStorage : sessionStorage).setItem('pigtoken', st.token);
   } catch (e) {}
 }
 function loadToken() { try { return sessionStorage.getItem('pigtoken') || localStorage.getItem('pigtoken'); } catch (e) { return null; } }
