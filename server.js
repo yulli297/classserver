@@ -1320,9 +1320,41 @@ async function boardRaw(boardId) {
   if (v === boardCache.ver) boardCache.posts.set(boardId, raw);
   return raw;
 }
+// 자유 배치 판: 크기와 카드 크기(화면에서도 같은 값을 써요)
+const CANVAS = { w: 3000, h: 2200, cw: 220, ch: 320, gap: 20, pad: 30 };
+const hasPos = (p) => Number.isFinite(p.x) && Number.isFinite(p.y);
+const byOrder = (a, b) => (typeof a.order === 'number' ? a.order : -a.at.toMillis()) - (typeof b.order === 'number' ? b.order : -b.at.toMillis());
+function gridCells() { // 판을 카드 크기 칸으로 나눈 좌표 (왼쪽 위부터 읽는 순서)
+  const cells = [];
+  for (let y = CANVAS.pad; y + CANVAS.ch <= CANVAS.h; y += CANVAS.ch + CANVAS.gap) for (let x = CANVAS.pad; x + CANVAS.cw <= CANVAS.w; x += CANVAS.cw + CANVAS.gap) cells.push({ x, y });
+  return cells;
+}
+const overlaps = (a, b) => Math.abs(a.x - b.x) < CANVAS.cw && Math.abs(a.y - b.y) < CANVAS.ch;
+// 새 글 자리: 비어 있는 칸 중 왼쪽 위에서 가까운 몇 칸 가운데 하나를 무작위로 (살짝 흩뜨려서 자연스럽게)
+function randomFreeSpot(posts) {
+  const used = posts.filter(hasPos);
+  // 왼쪽 위 모서리에서 가까운 칸부터 (처음엔 한 화면 안에 모이고, 글이 늘면 바깥으로 퍼져요)
+  const near = gridCells().sort((a, b) => (a.x + a.y * 1.6) - (b.x + b.y * 1.6));
+  const free = near.filter((c) => !used.some((u) => overlaps(c, u))).slice(0, 8);
+  const c = free.length ? free[Math.floor(Math.random() * free.length)] : { x: CANVAS.pad + Math.random() * (CANVAS.w - CANVAS.cw - 2 * CANVAS.pad), y: CANVAS.pad + Math.random() * (CANVAS.h - CANVAS.ch - 2 * CANVAS.pad) };
+  const j = () => Math.round(Math.random() * 16 - 8);
+  return { x: Math.max(0, Math.round(c.x) + (free.length ? j() : 0)), y: Math.max(0, Math.round(c.y) + (free.length ? j() : 0)) };
+}
+// 판 정리: all이면 모든 글을 순서대로 격자에, 아니면 자리가 없는 글만 빈 칸에
+async function arrangeBoard(boardId, all) {
+  const snap = await db.collection('boardPosts').where('boardId', '==', boardId).get();
+  const live = snap.docs.filter((d) => !d.data().deleted).sort((a, b) => byOrder(a.data(), b.data()));
+  const taken = all ? [] : live.filter((d) => hasPos(d.data())).map((d) => d.data());
+  const cells = gridCells().filter((c) => !taken.some((u) => overlaps(c, u)));
+  const todo = all ? live : live.filter((d) => !hasPos(d.data()));
+  const batch = db.batch(); let n = 0;
+  todo.forEach((d, i) => { const c = cells[i] || { x: CANVAS.pad + (i % 10) * 24, y: CANVAS.pad + (i % 10) * 24 }; batch.update(d.ref, { x: c.x, y: c.y }); n++; });
+  if (n) await batch.commit();
+  return n;
+}
 async function nameOf() { const names = await studentNames(); return (id) => (id === TEACHER_AUTHOR ? TEACHER_AUTHOR : names[id] || id); }
-const postView = (p, nm, me, extra) => ({ id: p.id, name: nm(p.authorId), at: timeStr(p.at.toDate()), text: p.text, link: p.link, photos: p.photoIds || [], files: p.files || [], mine: !!me && p.authorId === me, ...extra });
-const boardOf = (d) => ({ id: d.id, name: d.data().name, desc: d.data().desc || '', comments: d.data().comments !== false, likes: d.data().likes !== false, active: d.data().active !== false });
+const postView = (p, nm, me, extra) => ({ id: p.id, name: nm(p.authorId), at: timeStr(p.at.toDate()), text: p.text, link: p.link, photos: p.photoIds || [], files: p.files || [], x: Number.isFinite(p.x) ? p.x : null, y: Number.isFinite(p.y) ? p.y : null, mine: !!me && p.authorId === me, ...extra });
+const boardOf = (d) => ({ id: d.id, name: d.data().name, desc: d.data().desc || '', comments: d.data().comments !== false, likes: d.data().likes !== false, active: d.data().active !== false, layout: d.data().layout === 'free' ? 'free' : 'grid' });
 
 async function getBoard(id) {
   const d = await db.collection('boards').doc(String(id || '')).get();
@@ -1395,10 +1427,11 @@ async function writePost(boardId, authorId, b, S, admin) {
   const photoIds = await savePhotos(postId, datas);
   const files = await saveFiles(postId, fileList);
   const at = Timestamp.now();
-  await db.collection('boardPosts').doc(postId).set({ boardId: board.id, authorId, at, text, link, photoIds, files, deleted: false, order: -Date.now() });
+  const spot = board.layout === 'free' ? randomFreeSpot((await boardRaw(board.id)).ps.filter((p) => !p.deleted)) : {};
+  await db.collection('boardPosts').doc(postId).set({ boardId: board.id, authorId, at, text, link, photoIds, files, deleted: false, order: -Date.now(), ...spot });
   clearBoard(board.id); bumpCount(board.id, 1);
   const extra = [photoIds.length > 1 ? `사진 ${photoIds.length}장` : '', files.length ? `파일 ${files.length}개` : ''].filter(Boolean).join('과 ');
-  const post = postView({ id: postId, authorId, at, text, link, photoIds, files }, await nameOf(), authorId === TEACHER_AUTHOR ? '' : authorId, { likes: 0, liked: false, comments: [] });
+  const post = postView({ id: postId, authorId, at, text, link, photoIds, files, ...spot }, await nameOf(), authorId === TEACHER_AUTHOR ? '' : authorId, { likes: 0, liked: false, comments: [] });
   return { message: extra ? `${extra}과(와) 함께 올렸어요!` : '올렸어요!', post };
 }
 
@@ -1418,15 +1451,14 @@ app.get('/api/board/:id/posts', auth, wrap(async (req, res) => {
   const board = await getBoard(req.params.id);
   if (!board.active && !teacher) throw new UserError('볼 수 없는 보드예요');
   const [raw, nm] = await Promise.all([boardRaw(board.id), nameOf()]);
-  const posts = raw.ps.filter((p) => !p.deleted)
-    .sort((a, b) => (typeof a.order === 'number' ? a.order : -a.at.toMillis()) - (typeof b.order === 'number' ? b.order : -b.at.toMillis())).slice(0, 40);
+  const posts = raw.ps.filter((p) => !p.deleted).sort(byOrder).slice(0, board.layout === 'free' ? 150 : 40);
   const byPost = {};
   posts.forEach((p) => (byPost[p.id] = { likes: 0, liked: false, comments: [] }));
   raw.ls.forEach((l) => { const x = byPost[l.postId]; if (!x) return; x.likes++; if (l.studentId === me) x.liked = true; });
   raw.cs.filter((c) => !c.deleted).sort((a, b) => a.at.toMillis() - b.at.toMillis())
     .forEach((c) => { const x = byPost[c.postId]; if (x) x.comments.push({ id: c.id, name: nm(c.studentId), at: timeStr(c.at.toDate()), text: c.text }); });
   res.json({
-    board, teacher,
+    board, teacher, canvas: CANVAS,
     posts: posts.map((p) => postView(p, nm, me, byPost[p.id])),
   });
 }));
@@ -1480,7 +1512,7 @@ app.post('/api/board/post/:id/edit', auth, studentOnly, wrap(async (req, res) =>
   await Promise.all(old.filter((id) => !keep.includes(id)).map((id) => db.collection('boardPhotos').doc(id).delete()));
   await Promise.all(oldFiles.filter((f) => !keepFiles.some((k) => k.id === f.id)).map((f) => db.collection('boardFiles').doc(f.id).delete()));
   clearBoard(d.data().boardId);
-  const post = postView({ id: ref.id, authorId: d.data().authorId, at: d.data().at, text, link, photoIds: keep.concat(added), files: keepFiles.concat(addedFiles) }, await nameOf(), req.user.id, {});
+  const post = postView({ id: ref.id, authorId: d.data().authorId, at: d.data().at, x: d.data().x, y: d.data().y, text, link, photoIds: keep.concat(added), files: keepFiles.concat(addedFiles) }, await nameOf(), req.user.id, {});
   res.json({ ok: true, message: '글을 고쳤어요', post });
 }));
 
@@ -1533,7 +1565,7 @@ app.post('/api/admin/board', guard('teacher'), wrap(async (req, res) => {
   const name = String(req.body.name || '').trim();
   if (!name) throw new UserError('보드 이름을 적어주세요');
   await db.collection('boards').doc(newId('BD')).set({
-    name, desc: String(req.body.desc || '').trim(), comments: req.body.comments !== false, likes: req.body.likes !== false, active: true, createdMs: Date.now(),
+    name, desc: String(req.body.desc || '').trim(), comments: req.body.comments !== false, likes: req.body.likes !== false, active: true, createdMs: Date.now(), layout: req.body.layout === 'free' ? 'free' : 'grid',
   });
   res.json({ ok: true, message: `"${name}" 보드를 만들었어요` });
 }));
@@ -1543,7 +1575,9 @@ app.post('/api/admin/board/:id', guard('teacher'), wrap(async (req, res) => {
   if (b.name !== undefined && String(b.name).trim()) patch.name = String(b.name).trim();
   if (b.desc !== undefined) patch.desc = String(b.desc).trim();
   ['comments', 'likes', 'active'].forEach((k) => { if (b[k] !== undefined) patch[k] = !!b[k]; });
+  if (b.layout !== undefined) { if (!['grid', 'free'].includes(b.layout)) throw new UserError('배치 방식을 확인해 주세요'); patch.layout = b.layout; }
   await db.collection('boards').doc(req.params.id).update(patch);
+  if (patch.layout === 'free') await arrangeBoard(req.params.id, false); // 처음 자유 배치로 바꾸면 자리가 없는 글을 격자로 놓아요
   clearBoard(req.params.id);
   res.json({ ok: true, message: '저장했어요' });
 }));
@@ -1578,6 +1612,30 @@ app.post('/api/admin/board/:id/order', guard('teacher'), wrap(async (req, res) =
   await b.commit();
   clearBoard(req.params.id);
   res.json({ ok: true, message: '순서를 바꿨어요' });
+}));
+// 자유 배치: 선생님이 카드를 옮겨 놓은 자리 저장
+app.post('/api/admin/board/:id/move', guard('teacher'), wrap(async (req, res) => {
+  const board = await getBoard(req.params.id);
+  const moves = (Array.isArray(req.body.moves) ? req.body.moves : []).slice(0, 50);
+  const clamp = (v, max) => Math.max(0, Math.min(max, Math.round(Number(v))));
+  let n = 0;
+  for (const m of moves) {
+    if (!m || !Number.isFinite(Number(m.x)) || !Number.isFinite(Number(m.y))) continue;
+    const ref = db.collection('boardPosts').doc(String(m.id));
+    const d = await ref.get();
+    if (!d.exists || d.data().boardId !== board.id || d.data().deleted) continue;
+    await ref.update({ x: clamp(m.x, CANVAS.w - CANVAS.cw), y: clamp(m.y, CANVAS.h - CANVAS.ch) });
+    n++;
+  }
+  clearBoard(board.id);
+  res.json({ ok: true, message: n ? '자리를 저장했어요' : '옮길 글이 없어요' });
+}));
+// 자유 배치: 모든 글을 순서대로 격자로 다시 놓기
+app.post('/api/admin/board/:id/arrange', guard('teacher'), wrap(async (req, res) => {
+  const board = await getBoard(req.params.id);
+  const n = await arrangeBoard(board.id, true);
+  clearBoard(board.id);
+  res.json({ ok: true, message: `${n}개 글을 가지런히 정리했어요` });
 }));
 app.post('/api/admin/board/post/:id/delete', guard('teacher'), wrap(async (req, res) => {
   const ref = db.collection('boardPosts').doc(String(req.params.id));

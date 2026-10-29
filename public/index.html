@@ -212,6 +212,20 @@ button.stat { cursor: pointer; }
 .pad { columns: 3 230px; column-gap: 14px; }
 .pad .post { break-inside: avoid; display: inline-block; width: 100%; padding: 0; overflow: hidden; background: #fff; border: 1.5px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,.04); }
 .pad .pbody { padding: 14px 16px 16px; }
+/* 자유 배치 보드: 넓은 판 위에 카드를 올려요 */
+.bfull.isfree { overflow: hidden; display: flex; flex-direction: column; padding-bottom: 0; }
+.bfull.isfree .bhead { position: static; flex: 0 0 auto; flex-wrap: wrap; margin-bottom: 0; }
+.bzoom { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.bzoom + .bclose { margin-left: 0; }
+.bzoom .btn { min-width: 40px; }
+.bview { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; margin: 0 calc(-1 * clamp(16px, 4vw, 48px)); background-color: #FFF8D6; background-image: radial-gradient(rgba(0,0,0,.13) 1.3px, transparent 1.3px); background-size: 28px 28px; border-top: 1px solid rgba(0,0,0,.06); touch-action: pan-x pan-y; overscroll-behavior: contain; }
+.bspacer { position: relative; }
+.bfull .pad.free { display: block; columns: auto; position: absolute; left: 0; top: 0; padding: 0; transform-origin: 0 0; }
+.bfull .pad.free .post { position: absolute; width: 220px; height: 320px; min-height: 0; overflow: hidden; margin: 0; }
+.bfull .pad.free .post:hover { transform: none; box-shadow: 0 6px 16px rgba(0,0,0,.14); }
+.bview.t .post { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.bview .post.fdrag { cursor: grabbing; z-index: 50; box-shadow: 0 14px 30px rgba(0,0,0,.25) !important; transition: none; }
+.fempty { position: absolute; left: 40px; top: 40px; color: var(--sub); font-size: 18px; width: 420px; }
 .pbig { width: 100%; display: block; cursor: zoom-in; background: var(--line); }
 .pad .pgrid { padding: 8px 8px 0; margin-bottom: 0; grid-template-columns: repeat(3, 1fr); }
 .pad .pgrid img { aspect-ratio: 1; }
@@ -1267,7 +1281,7 @@ async function loadBoards() {
   renderBoard();
 }
 async function openBoard(id) {
-  st.boardId = id; st.posts = null; renderBoard();
+  st.boardId = id; st.posts = null; st.bv = null; renderBoard();
   try { st.posts = await api('/api/board/' + encodeURIComponent(id) + '/posts'); } catch (e) { toast(e.message, true); st.boardId = ''; }
   renderBoard();
 }
@@ -1276,6 +1290,65 @@ async function reloadPosts() {
   try { st.posts = await api('/api/board/' + encodeURIComponent(st.boardId) + '/posts'); } catch (e) { toast(e.message, true); }
   renderBoard();
 }
+/* ---- 자유 배치 판: 확대·축소, 선생님만 카드 이동 ---- */
+const BV_MIN = 0.2, BV_MAX = 2;
+function bvScale() { if (!st.bv) st.bv = { s: 1, left: 0, top: 0 }; return st.bv.s; }
+function bvApply(ns, cx, cy) {
+  const v = document.getElementById('bview'), cv = document.getElementById('bcv'), sp = document.getElementById('bsp'); if (!v || !cv) return;
+  const o = st.bv.s; ns = Math.min(BV_MAX, Math.max(BV_MIN, ns)); if (Math.abs(ns - o) < 0.001) return;
+  const W = (st.posts.canvas || { w: 3000 }).w, H = (st.posts.canvas || { h: 2200 }).h;
+  if (cx === undefined) { cx = v.clientWidth / 2; cy = v.clientHeight / 2; }
+  const wx = (v.scrollLeft + cx) / o, wy = (v.scrollTop + cy) / o;
+  st.bv.s = ns; cv.style.transform = `scale(${ns})`; sp.style.width = W * ns + 'px'; sp.style.height = H * ns + 'px';
+  v.scrollLeft = wx * ns - cx; v.scrollTop = wy * ns - cy;
+  st.bv.left = v.scrollLeft; st.bv.top = v.scrollTop;
+  const z = document.getElementById('bzv'); if (z) z.textContent = Math.round(ns * 100) + '%';
+}
+function bvFit() { const v = document.getElementById('bview'); if (!v) return; const c = st.posts.canvas || { w: 3000, h: 2200 }; bvApply(Math.min(v.clientWidth / c.w, v.clientHeight / c.h), 0, 0); v.scrollLeft = 0; v.scrollTop = 0; st.bv.left = 0; st.bv.top = 0; }
+document.addEventListener('wheel', (e) => { const v = e.target.closest && e.target.closest('#bview'); if (!v || !(e.ctrlKey || e.metaKey)) return; e.preventDefault(); const r = v.getBoundingClientRect(); bvApply(st.bv.s * Math.exp(-e.deltaY * 0.0025), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+document.addEventListener('scroll', (e) => { if (e.target && e.target.id === 'bview' && st.bv) { st.bv.left = e.target.scrollLeft; st.bv.top = e.target.scrollTop; } }, true);
+/* 두 손가락 확대·축소 */
+const bvPtr = new Map(); let bvPinch = null;
+document.addEventListener('pointerdown', (e) => {
+  const v = e.target.closest && e.target.closest('#bview');
+  if (v && e.pointerType === 'touch') { bvPtr.set(e.pointerId, e); if (bvPtr.size === 2) { const [a, b] = [...bvPtr.values()]; bvPinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), s: st.bv.s }; if (st.fdrag) fdragCancel(); } }
+  fdragStart(e);
+});
+document.addEventListener('pointermove', (e) => {
+  if (bvPtr.has(e.pointerId)) { bvPtr.set(e.pointerId, e); if (bvPinch && bvPtr.size === 2) { const v = document.getElementById('bview'); const [a, b] = [...bvPtr.values()]; const r = v.getBoundingClientRect(); e.preventDefault(); bvApply(bvPinch.s * Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / bvPinch.d, (a.clientX + b.clientX) / 2 - r.left, (a.clientY + b.clientY) / 2 - r.top); return; } }
+  fdragMove(e);
+}, { passive: false });
+const bvUp = (e) => { bvPtr.delete(e.pointerId); if (bvPtr.size < 2) bvPinch = null; fdragEnd(e); };
+document.addEventListener('pointerup', bvUp); document.addEventListener('pointercancel', bvUp);
+/* 선생님이 카드를 끌어 옮기기 */
+function fdragStart(e) {
+  if (st.fdrag || e.button > 0 || !isTeacher()) return;
+  const card = e.target.closest && e.target.closest('#bview.t .post'); if (!card || e.target.closest('a,button,input,textarea,select')) return;
+  if (e.pointerType === 'touch' && bvPtr.size > 1) return;
+  st.fdrag = { id: card.dataset.pid, el: card, pid: e.pointerId, sx: e.clientX, sy: e.clientY, x0: parseFloat(card.style.left) || 0, y0: parseFloat(card.style.top) || 0, moved: false };
+}
+function fdragMove(e) {
+  const d = st.fdrag; if (!d || d.pid !== e.pointerId) return;
+  const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+  if (!d.moved) { if (Math.hypot(dx, dy) < 6) return; d.moved = true; d.el.classList.add('fdrag'); try { d.el.setPointerCapture(e.pointerId); } catch (_) {} }
+  e.preventDefault();
+  const sc = st.bv.s, cv = st.posts.canvas || { w: 3000, h: 2200, cw: 220, ch: 320 };
+  d.x = Math.round(Math.min(cv.w - 220, Math.max(0, d.x0 + dx / sc))); d.y = Math.round(Math.min(cv.h - 320, Math.max(0, d.y0 + dy / sc)));
+  d.el.style.left = d.x + 'px'; d.el.style.top = d.y + 'px';
+  const v = document.getElementById('bview'), r = v.getBoundingClientRect();   // 가장자리에서 판 자동 이동
+  v.scrollLeft += e.clientX > r.right - 40 ? 18 : e.clientX < r.left + 40 ? -18 : 0; v.scrollTop += e.clientY > r.bottom - 40 ? 18 : e.clientY < r.top + 40 ? -18 : 0;
+}
+function fdragCancel() { const d = st.fdrag; if (!d) return; d.el.classList.remove('fdrag'); d.el.style.left = d.x0 + 'px'; d.el.style.top = d.y0 + 'px'; st.fdrag = null; }
+async function fdragEnd(e) {
+  const d = st.fdrag; if (!d || d.pid !== e.pointerId) return; st.fdrag = null; d.el.classList.remove('fdrag');
+  if (!d.moved) return;
+  st.noClick = Date.now();
+  const p = st.posts.posts.find((x) => x.id === d.id); if (p) { p.x = d.x; p.y = d.y; }
+  try { await api(`/api/admin/board/${encodeURIComponent(st.boardId)}/move`, { method: 'POST', body: { moves: [{ id: d.id, x: d.x, y: d.y }] } }); }
+  catch (er) { toast(er.message, true); reloadPosts(); }
+}
+document.addEventListener('click', (e) => { if (st.noClick && Date.now() - st.noClick < 400 && e.target.closest && e.target.closest('#bview .post')) { e.stopPropagation(); e.preventDefault(); } st.noClick = 0; }, true);
+document.addEventListener('dragstart', (e) => { if (e.target.closest && e.target.closest('#bview')) e.preventDefault(); }, true);
 const fileUrl = (id, dl) => '/api/board/file/' + encodeURIComponent(id) + '?t=' + encodeURIComponent(st.token || '') + (dl ? '&dl=1' : '');
 const fmtSize = (n) => (n >= 1000000 ? (n / 1000000).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1000)) + 'KB');
 const filesHtml = (files) => (files && files.length ? `<div class="pfiles">` + files.map((f) => `<div class="pfile"><a class="fn" href="${fileUrl(f.id)}" target="_blank" rel="noopener noreferrer" title="${esc(f.name)}">📄 ${esc(f.name)}</a><small>${fmtSize(f.size)}</small><a class="fdl" href="${fileUrl(f.id, true)}" download>받기</a></div>`).join('') + `</div>` : '');
@@ -1292,13 +1365,17 @@ function renderBoardFull() {
   let f = document.getElementById('bfull');
   if (!st.boardId || !st.board) { if (f) { f.remove(); document.body.style.overflow = ''; } return; }
   const keep = f ? f.scrollTop : 0;
+  const ov = f && f.querySelector('#bview'); if (ov && st.bv) { st.bv.left = ov.scrollLeft; st.bv.top = ov.scrollTop; }
   if (!f) { f = document.createElement('div'); f.id = 'bfull'; f.className = 'bfull'; f.setAttribute('role', 'dialog'); f.setAttribute('aria-label', '보드'); document.body.appendChild(f); document.body.style.overflow = 'hidden'; }
-  f.innerHTML = boardViewHtml(); f.scrollTop = keep; refreshPostModal();
+  f.className = 'bfull' + (st.posts && st.posts.board && st.posts.board.layout === 'free' ? ' isfree' : '');
+  f.innerHTML = boardViewHtml(); f.scrollTop = keep;
+  const nv = f.querySelector('#bview'); if (nv && st.bv) { nv.scrollLeft = st.bv.left; nv.scrollTop = st.bv.top; }
+  refreshPostModal();
 }
 function boardListHtml() {
   const list = st.board.boards;
   if (!list.length) return `<div class="empty">아직 열린 보드가 없어요.${isTeacher() ? '<br>교사 모드에서 보드를 만들어 보세요.' : ''}</div>`;
-  return `<div class="grid">` + list.map((b) => `<button type="button" class="card bcard" data-act="bOpen" data-id="${esc(b.id)}">${b.active ? '' : '<span class="badge gray">학생에게 숨김</span>'}<div class="nm">${esc(b.name)}</div><div class="ds">${esc(b.desc)}</div><div class="st">글 ${fmt(b.count)}개</div></button>`).join('') + `</div>`;
+  return `<div class="grid">` + list.map((b) => `<button type="button" class="card bcard" data-act="bOpen" data-id="${esc(b.id)}">${b.active ? '' : '<span class="badge gray">학생에게 숨김</span>'}${b.layout === 'free' ? '<span class="badge">자유 배치</span>' : ''}<div class="nm">${esc(b.name)}</div><div class="ds">${esc(b.desc)}</div><div class="st">글 ${fmt(b.count)}개</div></button>`).join('') + `</div>`;
 }
 function boardViewHtml() {
   const P = st.posts;
@@ -1306,7 +1383,14 @@ function boardViewHtml() {
   if (!P) return `<div class="bhead"><div><h2 style="margin:0">불러오는 중이에요…</h2></div>${close}</div>`;
   const b = P.board, t = isTeacher();
   const plus = (t || b.active) ? `<button type="button" class="plus" data-act="bWrite" aria-label="${t ? '선생님으로 글쓰기' : '글쓰기'}" title="${t ? '선생님으로 글쓰기' : '글쓰기'}">+</button>` : '';
-  const head = `<div class="bhead">${plus}<div><h2 style="margin:0 0 4px">${esc(b.name)}</h2><p class="note" style="margin:0">${esc(b.desc)}${t ? ' · 카드를 끌어서 옮길 수 있어요' : ''}</p></div>${close}</div>`;
+  const free = b.layout === 'free';
+  const zoom = free ? `<div class="bzoom"><button type="button" class="btn tiny gray" data-act="bZoom" data-d="-1" aria-label="축소">−</button><button type="button" class="btn tiny gray" data-act="bZoom" data-d="reset" aria-label="원래 크기"><span id="bzv">${Math.round(bvScale() * 100)}%</span></button><button type="button" class="btn tiny gray" data-act="bZoom" data-d="1" aria-label="확대">+</button><button type="button" class="btn tiny gray" data-act="bZoom" data-d="fit">전체 보기</button>${t ? '<button type="button" class="btn tiny gray" data-act="bArrange">정리</button>' : ''}</div>` : '';
+  const hint = t ? (free ? ' · 카드를 끌어서 원하는 자리에 놓아요' : ' · 카드를 끌어서 옮길 수 있어요') : (free ? ' · Ctrl+휠이나 두 손가락으로 확대·축소해요' : '');
+  const head = `<div class="bhead">${plus}<div><h2 style="margin:0 0 4px">${esc(b.name)}</h2><p class="note" style="margin:0">${esc(b.desc)}${hint}</p></div>${zoom}${close}</div>`;
+  if (free) {
+    const cv = P.canvas || { w: 3000, h: 2200 }, sc = bvScale();
+    return head + `<div class="bview${t ? ' t' : ''}" id="bview"><div class="bspacer" id="bsp" style="width:${cv.w * sc}px;height:${cv.h * sc}px"><div class="pad free" id="bcv" style="width:${cv.w}px;height:${cv.h}px;transform:scale(${sc})">${P.posts.map((p, i) => postHtml(p, b, t, true, i)).join('')}${P.posts.length ? '' : '<div class="fempty">아직 글이 없어요. 왼쪽 위의 + 버튼으로 첫 글을 남겨 보세요!</div>'}</div></div></div>`;
+  }
   return head + (P.posts.length ? `<div class="pad">${P.posts.map((p) => postHtml(p, b, t)).join('')}</div>` : '<div class="empty">아직 글이 없어요. 왼쪽 위의 + 버튼으로 첫 글을 남겨 보세요!</div>');
 }
 function postFullHtml(p, b, t) {
@@ -1321,11 +1405,11 @@ function postFullHtml(p, b, t) {
   return `<article class="post full">${photos}<div class="pbody"><div class="who"><b>${esc(p.name)}</b><span>${esc(p.at)}</span></div>${p.text ? `<p class="txt">${esc(p.text)}</p>` : ''}${p.link ? `<a class="lnk" href="${esc(p.link)}" target="_blank" rel="noopener noreferrer">${esc(p.link)}</a>` : ''}${filesHtml(p.files)}<div class="bar2">${like}${acts}</div>${cm ? `<div style="margin-top:8px">${cm}</div>` : ''}${form}</div></article>`;
 }
 
-function postHtml(p, b, t) {
-  const mv = t ? `<div class="mv"><button type="button" class="btn tiny gray" data-act="bMove" data-id="${esc(p.id)}" data-d="-1" aria-label="앞으로">◀</button><button type="button" class="btn tiny gray" data-act="bMove" data-id="${esc(p.id)}" data-d="1" aria-label="뒤로">▶</button></div>` : '';
+function postHtml(p, b, t, free, idx) {
+  const mv = t && !free ? `<div class="mv"><button type="button" class="btn tiny gray" data-act="bMove" data-id="${esc(p.id)}" data-d="-1" aria-label="앞으로">◀</button><button type="button" class="btn tiny gray" data-act="bMove" data-id="${esc(p.id)}" data-d="1" aria-label="뒤로">▶</button></div>` : '';
   const ph = p.photos.length ? `<div class="cph" style="background-image:url('${photoUrl(p.photos[0])}')">${p.photos.length > 1 ? `<span class="more">+${p.photos.length - 1}</span>` : ''}</div>` : '';
   const txt = p.text || (p.link ? p.link : '') || ((p.files || []).length ? '📄 ' + p.files[0].name : '');
-  return `<article class="post" data-act="bPost" data-id="${esc(p.id)}" data-pid="${esc(p.id)}" tabindex="0"${t ? ' draggable="true"' : ''} aria-label="${esc(p.name)}님의 글 열기">${mv}<div class="pbody">${ph}<div class="who"><b>${esc(p.name)}</b><span>${esc(p.at)}</span></div>${txt ? `<p class="txt clamp">${esc(txt)}</p>` : ''}</div><div class="cfoot">${(p.files || []).length ? `<span>📎 ${fmt(p.files.length)}</span>` : ''}${b.likes ? `<span>👍 ${fmt(p.likes)}</span>` : ''}${b.comments ? `<span>💬 ${fmt(p.comments.length)}</span>` : ''}</div></article>`;
+  return `<article class="post" data-act="bPost" data-id="${esc(p.id)}" data-pid="${esc(p.id)}" tabindex="0"${t && !free ? ' draggable="true"' : ''}${free ? ` style="left:${p.x === null ? 30 + (idx % 10) * 240 : p.x}px;top:${p.y === null ? 30 + Math.floor(idx / 10) * 340 : p.y}px"` : ''} aria-label="${esc(p.name)}님의 글 열기">${mv}<div class="pbody">${ph}<div class="who"><b>${esc(p.name)}</b><span>${esc(p.at)}</span></div>${txt ? `<p class="txt clamp">${esc(txt)}</p>` : ''}</div><div class="cfoot">${(p.files || []).length ? `<span>📎 ${fmt(p.files.length)}</span>` : ''}${b.likes ? `<span>👍 ${fmt(p.likes)}</span>` : ''}${b.comments ? `<span>💬 ${fmt(p.comments.length)}</span>` : ''}</div></article>`;
 }
 function openPostModal(id) {
   const P = st.posts; if (!P) return;
@@ -1416,6 +1500,7 @@ document.addEventListener('change', async (e) => {
 function boardTeacherPanel() {
   const rows = st.board.boards.map((b) => `<div class="mrow"><div class="t"><b>${esc(b.name)}</b> ${b.active ? '' : '<span class="badge gray">숨김</span>'}<i>${esc(b.desc)} · 글 ${fmt(b.count)}개</i></div><div class="acts">
     <button type="button" class="btn tiny gray" data-act="bdEdit" data-id="${esc(b.id)}">이름·설명</button>
+    <button type="button" class="btn tiny gray" data-act="bdLayout" data-id="${esc(b.id)}">${b.layout === 'free' ? '줄 맞춤으로 바꾸기' : '자유 배치로 바꾸기'}</button>
     <button type="button" class="btn tiny gray" data-act="bdTog" data-id="${esc(b.id)}" data-k="active">${b.active ? '숨기기' : '보이기'}</button>
     <button type="button" class="btn tiny gray" data-act="bdTog" data-id="${esc(b.id)}" data-k="comments">댓글 ${b.comments ? '끄기' : '켜기'}</button>
     <button type="button" class="btn tiny gray" data-act="bdTog" data-id="${esc(b.id)}" data-k="likes">추천 ${b.likes ? '끄기' : '켜기'}</button>
@@ -1426,7 +1511,7 @@ function boardTeacherPanel() {
     <h3 style="margin-top:20px">새 보드 만들기</h3><div class="form">
     <div class="field"><label for="bdName">보드 이름</label><input id="bdName" type="text" maxlength="30" placeholder="자유 게시판"></div>
     <div class="field" style="flex-grow:2"><label for="bdDesc">설명</label><input id="bdDesc" type="text" maxlength="80" placeholder="하고 싶은 이야기를 자유롭게 남겨요"></div></div>
-    <label style="font-size:14px;margin-right:16px"><input type="checkbox" id="bdCm" checked> 댓글 허용</label><label style="font-size:14px"><input type="checkbox" id="bdLk" checked> 추천 허용</label>
+    <label style="font-size:14px;margin-right:16px">배치 <select id="bdLay"><option value="grid">줄 맞춤 (한 줄에 여러 개)</option><option value="free">자유 배치 (넓은 판)</option></select></label><label style="font-size:14px;margin-right:16px"><input type="checkbox" id="bdCm" checked> 댓글 허용</label><label style="font-size:14px"><input type="checkbox" id="bdLk" checked> 추천 허용</label>
     <div style="margin-top:12px"><button type="button" class="btn" data-act="bdNew">보드 만들기</button></div>
     <h3 style="margin-top:24px">보드 전체 비우기</h3><p class="note">모든 보드와 글·사진·댓글을 한꺼번에 지워요.</p><button type="button" class="btn red small" data-act="boardWipe">보드 모두 지우기</button></section>`;
 }
@@ -1505,7 +1590,7 @@ const BOARD_ACT = {
   impGo: async () => { closeModal(); await impSend(true); },
   bOpen: (d) => openBoard(d.id),
   bPost: (d) => openPostModal(d.id),
-  bBack: () => { st.boardId = ''; st.posts = null; loadBoards(); },
+  bBack: () => { st.boardId = ''; st.posts = null; st.bv = null; loadBoards(); },
   bMove: (d) => { const a = st.posts.posts, i = a.findIndex((p) => p.id === d.id), j = i + Number(d.d); if (i < 0 || j < 0 || j >= a.length) return; const [x] = a.splice(i, 1); a.splice(j, 0, x); renderBoardFull(); saveOrder(); },
   bWrite: () => composeOpen('new'),
   bEdit: (d) => composeOpen('edit', st.posts.posts.find((p) => p.id === d.id)),
@@ -1561,13 +1646,19 @@ const BOARD_ACT = {
   bPhoto: (d) => lightboxOpen(d.id),
   bdNew: async () => {
     const name = val('bdName').trim(); if (!name) return toast('보드 이름을 적어주세요', true);
-    await boardDo('만드는 중이에요', '/api/admin/board', { name, desc: val('bdDesc'), comments: document.getElementById('bdCm').checked, likes: document.getElementById('bdLk').checked }, loadBoards);
+    await boardDo('만드는 중이에요', '/api/admin/board', { name, desc: val('bdDesc'), layout: val('bdLay'), comments: document.getElementById('bdCm').checked, likes: document.getElementById('bdLk').checked }, loadBoards);
   },
   bdEdit: (d) => {
     const b = st.board.boards.find((x) => x.id === d.id);
     openModal(`<h3>보드 이름·설명</h3><div class="field"><label for="bdeName">이름</label><input id="bdeName" type="text" maxlength="30" value="${esc(b.name)}"></div><div class="field" style="margin-top:10px"><label for="bdeDesc">설명</label><input id="bdeDesc" type="text" maxlength="80" value="${esc(b.desc)}"></div><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="bdeGo" data-id="${esc(d.id)}">저장</button></div>`);
   },
   bdeGo: (d) => boardDo('저장하는 중이에요', `/api/admin/board/${d.id}`, { name: val('bdeName'), desc: val('bdeDesc') }, afterBoards),
+  bZoom: (d) => { if (d.d === 'fit') return bvFit(); if (d.d === 'reset') return bvApply(1); bvApply(st.bv.s * (d.d === '1' ? 1.25 : 0.8)); },
+  bArrange: () => {
+    openModal(`<h3>카드를 가지런히 정리할까요?</h3><p>모든 카드가 판 왼쪽 위부터 순서대로 가지런히 놓여요. 지금 놓은 자리는 사라져요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn" data-act="bArrangeGo">정리하기</button></div>`);
+  },
+  bArrangeGo: () => boardDo('정리하는 중이에요', `/api/admin/board/${st.boardId}/arrange`, {}, reloadPosts),
+  bdLayout: (d) => { const b = st.board.boards.find((x) => x.id === d.id); boardDo('바꾸는 중이에요', `/api/admin/board/${d.id}`, { layout: b.layout === 'free' ? 'grid' : 'free' }, afterBoards); },
   bdTog: (d) => { const b = st.board.boards.find((x) => x.id === d.id); boardDo('저장하는 중이에요', `/api/admin/board/${d.id}`, { [d.k]: !b[d.k] }, afterBoards); },
   bdDel: (d) => {
     const b = st.board.boards.find((x) => x.id === d.id);
