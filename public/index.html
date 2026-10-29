@@ -2082,7 +2082,16 @@ document.addEventListener('change', async (e) => {
 (async function boot() {
   try { const c = await fetch('/api/country').then((r) => r.json()); googleClientId = c.googleClientId || ''; if (c.name) { document.title = c.name; $('#lname').textContent = c.name; $('#brandName').textContent = c.name; } } catch (e) {}
   const t = loadToken();
-  if (t) { st.token = t; try { await enter(); return; } catch (e) { st.token = null; saveToken(); } }
+  if (t) {
+    // 서버가 잠들어 있거나 일시적으로 오류가 나도 저장된 로그인은 지우지 않아요. 로그인이 정말 무효일 때(401)만 지워져요.
+    st.token = t;
+    for (const wait of [0, 3000, 5000, 8000, 12000, 15000, 15000]) {
+      if (wait) { busy(true, '서버를 깨우는 중이에요… 잠시만 기다려 주세요'); await new Promise((r) => setTimeout(r, wait)); }
+      try { await enter(); busy(false); return; } catch (e) { if (!st.token) break; }
+    }
+    busy(false);
+    if (st.token) { st.token = null; try { toast('서버가 아직 준비되지 않았어요. 잠시 뒤 새로고침하면 저장된 로그인으로 들어가요', true); } catch (e) {} }  // 저장소의 로그인은 그대로 둬요
+  }
   $('#login').hidden = false;
   if (isTeacherDevice()) initGoogle(true); // 선생님 기기만 구글 자동 로그인 안내가 떠요. 학생 기기는 구글 코드를 불러오지도 않아요
 })();
