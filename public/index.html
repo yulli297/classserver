@@ -223,6 +223,8 @@ button.stat { cursor: pointer; }
 .bfull .pad.free { display: block; columns: auto; position: absolute; left: 0; top: 0; padding: 0; transform-origin: 0 0; }
 .bfull .pad.free .post { position: absolute; width: 220px; height: 320px; min-height: 0; overflow: hidden; margin: 0; }
 .bfull .pad.free .post:hover { transform: none; box-shadow: 0 6px 16px rgba(0,0,0,.14); }
+.bview { cursor: grab; }
+.bview.panning, .bview.panning .post { cursor: grabbing; user-select: none; }
 .bview.t .post { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
 .bview .post.fdrag { cursor: grabbing; z-index: 50; box-shadow: 0 14px 30px rgba(0,0,0,.25) !important; transition: none; }
 .fempty { position: absolute; left: 40px; top: 40px; color: var(--sub); font-size: 18px; width: 420px; }
@@ -1312,14 +1314,28 @@ const bvPtr = new Map(); let bvPinch = null;
 document.addEventListener('pointerdown', (e) => {
   const v = e.target.closest && e.target.closest('#bview');
   if (v && e.pointerType === 'touch') { bvPtr.set(e.pointerId, e); if (bvPtr.size === 2) { const [a, b] = [...bvPtr.values()]; bvPinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), s: st.bv.s }; if (st.fdrag) fdragCancel(); } }
-  fdragStart(e);
+  fdragStart(e); panStart(e);
 });
 document.addEventListener('pointermove', (e) => {
   if (bvPtr.has(e.pointerId)) { bvPtr.set(e.pointerId, e); if (bvPinch && bvPtr.size === 2) { const v = document.getElementById('bview'); const [a, b] = [...bvPtr.values()]; const r = v.getBoundingClientRect(); e.preventDefault(); bvApply(bvPinch.s * Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / bvPinch.d, (a.clientX + b.clientX) / 2 - r.left, (a.clientY + b.clientY) / 2 - r.top); return; } }
-  fdragMove(e);
+  fdragMove(e); panMove(e);
 }, { passive: false });
-const bvUp = (e) => { bvPtr.delete(e.pointerId); if (bvPtr.size < 2) bvPinch = null; fdragEnd(e); };
+const bvUp = (e) => { bvPtr.delete(e.pointerId); if (bvPtr.size < 2) bvPinch = null; fdragEnd(e); panEnd(e); };
 document.addEventListener('pointerup', bvUp); document.addEventListener('pointercancel', bvUp);
+/* 마우스로 판 배경(학생은 카드 위도)을 끌어 화면 옮기기 (터치는 손가락으로 바로 밀어요) */
+function panStart(e) {
+  if (st.pan || st.fdrag || e.button !== 0 || e.pointerType === 'touch') return;
+  const v = e.target.closest && e.target.closest('#bview'); if (!v || e.target.closest('a,button,input,textarea,select')) return;
+  if (isTeacher() && e.target.closest('.post')) return;
+  st.pan = { pid: e.pointerId, v, sx: e.clientX, sy: e.clientY, l: v.scrollLeft, t: v.scrollTop, moved: false };
+}
+function panMove(e) {
+  const d = st.pan; if (!d || d.pid !== e.pointerId) return;
+  const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+  if (!d.moved) { if (Math.hypot(dx, dy) < 5) return; d.moved = true; d.v.classList.add('panning'); try { d.v.setPointerCapture(e.pointerId); } catch (_) {} }
+  e.preventDefault(); d.v.scrollLeft = d.l - dx; d.v.scrollTop = d.t - dy;
+}
+function panEnd(e) { const d = st.pan; if (!d || d.pid !== e.pointerId) return; st.pan = null; d.v.classList.remove('panning'); if (d.moved) st.noClick = Date.now(); }
 /* 선생님이 카드를 끌어 옮기기 */
 function fdragStart(e) {
   if (st.fdrag || e.button > 0 || !isTeacher()) return;
