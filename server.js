@@ -52,6 +52,12 @@ const DEFAULTS = {
   과제미제출감점: 1,
   벌금최대금액: 500,
   통로위치: '2,4',
+  // 개인정보 처리방침(/privacy.html)에 보여요
+  개인정보책임자: '담임교사',
+  개인정보연락처: '학교 교무실로 문의해 주세요',
+  학교이름: '',
+  데이터저장위치: 'Google Cloud (Firestore) — 위치는 Firebase 콘솔에서 확인',
+  처리방침시행일: '2026-11-06',
 };
 const EDITABLE_SETTINGS = Object.keys(DEFAULTS);
 
@@ -360,11 +366,19 @@ const newId = (p) => p + Date.now().toString(36) + Math.random().toString(36).sl
 //  로그인 · 권한
 // ----------------------------------------------------------------------
 function auth(req, res, next) {
-  const user = readToken((req.headers.authorization || '').replace('Bearer ', '') || String(req.query.t || '')); // 사진 주소는 ?t= 로 확인
+  const user = readToken((req.headers.authorization || '').replace('Bearer ', ''));
+  if (!user || user.m) return res.status(401).json({ error: '다시 로그인해 주세요' }); // 사진용 표(m)로는 다른 기능을 못 써요
+  req.user = user;
+  next();
+}
+// 보드 사진·파일 주소용: 로그인표 대신 '사진·파일 보기만 되는 표'(?m=, 하루짜리)를 주소에 붙여요
+function mediaAuth(req, res, next) {
+  const user = readToken(String(req.query.m || '')) || readToken((req.headers.authorization || '').replace('Bearer ', ''));
   if (!user) return res.status(401).json({ error: '다시 로그인해 주세요' });
   req.user = user;
   next();
 }
+const mediaToken = (u) => makeToken({ m: 1, role: u.role, ...(u.id ? { id: u.id } : {}) }, 24);
 function studentOnly(req, res, next) {
   if (req.user.role !== 'student') return res.status(403).json({ error: '학생 화면에서만 할 수 있어요 (미리보기 중이에요)' });
   next();
@@ -395,14 +409,34 @@ function targetId(req) {
   return id;
 }
 
+// 비밀번호를 여러 번 틀리면 잠시 막아요 (번호마다 10분 안에 5번 틀리면 5분). 4자리 비밀번호를 하나씩 넣어 보는 것을 막아요.
+const loginFails = new Map();
+function checkLock(key) {
+  const f = loginFails.get(key);
+  if (f && f.until > Date.now()) throw new UserError(`비밀번호를 여러 번 틀렸어요. ${Math.ceil((f.until - Date.now()) / 60000)}분 뒤에 다시 해 주세요`);
+}
+function loginFailed(key) {
+  const now = Date.now();
+  let f = loginFails.get(key);
+  if (!f || now - f.first > 10 * 60 * 1000) f = { n: 0, first: now, until: 0 };
+  f.n++;
+  if (f.n >= 5) { f.until = now + 5 * 60 * 1000; f.n = 0; f.first = now; }
+  loginFails.set(key, f);
+  if (loginFails.size > 5000) loginFails.clear();
+}
 app.post('/api/login', wrap(async (req, res) => {
   const { role, id, pin } = req.body;
   if (role === 'teacher') {
-    if (pin !== TEACHER_PASSWORD) throw new UserError('비밀번호가 달라요');
+    checkLock('T');
+    if (pin !== TEACHER_PASSWORD) { loginFailed('T'); throw new UserError('비밀번호가 달라요'); }
+    loginFails.delete('T');
     return res.json({ token: makeToken({ role: 'teacher' }), role: 'teacher' });
   }
+  const key = 'S:' + String(id || '').trim().slice(0, 10);
+  checkLock(key);
   const doc = await db.collection('students').doc(String(id)).get();
-  if (!doc.exists || doc.data().pinHash !== hashPin(pin)) throw new UserError('번호 또는 비밀번호가 달라요');
+  if (!doc.exists || doc.data().pinHash !== hashPin(pin)) { loginFailed(key); throw new UserError('번호 또는 비밀번호가 달라요'); }
+  loginFails.delete(key);
   res.json({ token: makeToken({ role: 'student', id: doc.id }, 24 * 60), role: 'student' });
 }));
 
@@ -431,7 +465,8 @@ app.post('/api/pin', auth, studentOnly, wrap(async (req, res) => {
   if (!/^[0-9]{4}$/.test(String(newPin))) throw new UserError('새 비밀번호는 숫자 4자리여야 해요');
   const ref = db.collection('students').doc(req.user.id);
   const doc = await ref.get();
-  if (doc.data().pinHash !== hashPin(oldPin)) throw new UserError('지금 쓰는 비밀번호가 달라요');
+  checkLock('P:' + req.user.id);
+  if (doc.data().pinHash !== hashPin(oldPin)) { loginFailed('P:' + req.user.id); throw new UserError('지금 쓰는 비밀번호가 달라요'); }
   await ref.update({ pinHash: hashPin(newPin) });
   res.json({ ok: true });
 }));
@@ -526,11 +561,11 @@ app.get('/api/info', auth, wrap(async (req, res) => {
 
 // 내 권한 (교사 모드 버튼을 보여 줄지 결정)
 app.get('/api/whoami', auth, wrap(async (req, res) => {
-  if (req.user.role === 'teacher') return res.json({ role: 'teacher', perms: ['teacher', '상점관리', '국고관리', '신용관리', '은행관리', '자리관리', '제출승인', '벌금'] });
+  if (req.user.role === 'teacher') return res.json({ media: mediaToken(req.user), role: 'teacher', perms: ['teacher', '상점관리', '국고관리', '신용관리', '은행관리', '자리관리', '제출승인', '벌금'] });
   const d = await db.collection('students').doc(req.user.id).get();
   const jobs = await getJobs();
   const job = d.exists ? jobs[d.data().jobId] : null;
-  res.json({ role: 'student', id: req.user.id, name: d.exists ? d.data().name : '', perms: job ? job.perms || [] : [], job: job ? { id: job.id, name: job.name, desc: job.desc || '', daily: job.daily || [], periodic: job.periodic || [], reportable: !!job.reportable } : null });
+  res.json({ media: mediaToken(req.user), role: 'student', id: req.user.id, name: d.exists ? d.data().name : '', perms: job ? job.perms || [] : [], job: job ? { id: job.id, name: job.name, desc: job.desc || '', daily: job.daily || [], periodic: job.periodic || [], reportable: !!job.reportable } : null });
 }));
 
 // 최근 거래만 읽어요. Firestore 색인(ledger: studentId 오름차순 + at 내림차순)이 필요해요.
@@ -1199,6 +1234,61 @@ app.post('/api/admin/students/:id/rename', guard('teacher'), wrap(async (req, re
   clearNames();
   res.json({ ok: true, message: '이름을 고쳤어요' });
 }));
+// ---------- 개인정보: 학생 한 명 삭제 · 학년말 전체 삭제 ----------
+async function commitOps(ops) { for (let i = 0; i < ops.length; i += 400) { const b = db.batch(); ops.slice(i, i + 400).forEach((f) => f(b)); await b.commit(); } }
+function afterWipe() { clearNames(); clearAllBoards(); treasuryC.clear(); creditC.clear(); readCache.clear(); }
+// 학생 한 명의 기록을 모두 지워요 (국고 기록은 반 전체 돈이라 남기고 학생 표시만 지워요)
+app.post('/api/admin/students/:id/delete', guard('teacher'), wrap(async (req, res) => {
+  const id = String(req.params.id);
+  const ref = db.collection('students').doc(id), d = await ref.get();
+  if (!d.exists) throw new UserError('학생을 찾을 수 없어요');
+  if (String(req.body.confirm || '').trim() !== d.data().name) throw new UserError(`확인을 위해 학생 이름 "${d.data().name}"을(를) 그대로 적어 주세요`);
+  const q = (c, f) => db.collection(c).where(f, '==', id).get();
+  const [led, cr, sa, dep, gj, ml, apR, apS, posts, cms, lks, seats, tr, asg, sub] = await Promise.all([
+    q('ledger', 'studentId'), q('credits', 'studentId'), q('sales', 'studentId'), q('deposits', 'studentId'), q('groupJoins', 'studentId'), q('mathLog', 'studentId'),
+    q('approvals', 'requesterId'), q('approvals', 'studentId'), q('boardPosts', 'authorId'), q('boardComments', 'studentId'), q('boardLikes', 'studentId'),
+    q('seats', 'studentId'), q('treasury', 'studentId'), ASG().get(), SUBMIT_REF().get(),
+  ]);
+  const ops = [], gone = new Set();
+  const del = (doc) => { if (gone.has(doc.ref.path || doc.id + doc.ref.name)) return; gone.add(doc.ref.path || doc.id + doc.ref.name); ops.push((b) => b.delete(doc.ref)); };
+  [led, cr, sa, dep, gj, ml, apR, apS, cms, lks].forEach((sn) => sn.docs.forEach(del));
+  for (const p of posts.docs) {           // 그 학생이 쓴 글과 사진·파일, 글에 달린 댓글·추천
+    del(p);
+    (p.data().photoIds || []).forEach((pid) => ops.push((b) => b.delete(db.collection('boardPhotos').doc(pid))));
+    (p.data().files || []).forEach((f) => ops.push((b) => b.delete(db.collection('boardFiles').doc(f.id))));
+    const [pc, pl] = await Promise.all([db.collection('boardComments').where('postId', '==', p.id).get(), db.collection('boardLikes').where('postId', '==', p.id).get()]);
+    pc.docs.forEach(del); pl.docs.forEach(del);
+  }
+  seats.docs.forEach((x) => ops.push((b) => b.update(x.ref, { studentId: '', paid: false })));
+  tr.docs.forEach((x) => ops.push((b) => b.update(x.ref, { studentId: '' })));
+  asg.docs.forEach((x) => {
+    const m = { ...(x.data().marks || {}) }, dn = { ...(x.data().done || {}) };
+    if (id in m || id in dn) { delete m[id]; delete dn[id]; ops.push((b) => b.update(x.ref, { marks: m, done: dn })); }
+  });
+  if (sub.exists && sub.data().status && id in sub.data().status) { const st2 = { ...sub.data().status }; delete st2[id]; ops.push((b) => b.update(sub.ref, { status: st2 })); }
+  ops.push((b) => b.delete(ref));
+  await commitOps(ops);
+  afterWipe();
+  okMsg(res, `${d.data().name} 학생과 그 기록을 모두 지웠어요`);
+}));
+// 학년말 전체 삭제: 학생과 모든 활동 기록을 지워요. 직업·상점 상품·이자율·설정·자리 칸은 남겨요(다음 해에 그대로 써요)
+const WIPE_COLLS = ['students', 'ledger', 'treasury', 'sales', 'credits', 'deposits', 'groupGoals', 'groupJoins', 'mathLog', 'approvals', 'assignments',
+  'boards', 'boardPosts', 'boardComments', 'boardLikes', 'boardPhotos', 'boardFiles'];
+app.post('/api/admin/reset-all', guard('teacher'), wrap(async (req, res) => {
+  if (String(req.body.confirm || '').trim() !== '전체삭제') throw new UserError('확인 문구 "전체삭제"를 입력해 주세요');
+  const ops = []; let n = 0;
+  for (const c of WIPE_COLLS) {
+    const snap = await db.collection(c).select().get();   // 문서 번호만 읽어요
+    snap.docs.forEach((d) => ops.push((b) => b.delete(d.ref))); n += snap.size;
+  }
+  const [seats, items, sub] = await Promise.all([db.collection('seats').get(), db.collection('shopItems').get(), SUBMIT_REF().get()]);
+  seats.docs.forEach((d) => { if (d.data().studentId || d.data().paid) ops.push((b) => b.update(d.ref, { studentId: '', paid: false })); });
+  items.docs.forEach((d) => ops.push((b) => b.update(d.ref, { sold: 0, baseline: 0 })));
+  if (sub.exists) ops.push((b) => b.delete(sub.ref));
+  await commitOps(ops);
+  afterWipe();
+  okMsg(res, `학생과 활동 기록 ${n.toLocaleString()}건을 모두 지웠어요. 직업·상품·설정·자리 칸은 그대로 남아 있어요`);
+}));
 app.post('/api/admin/students/:id/resetpin', guard('teacher'), wrap(async (req, res) => {
   await db.collection('students').doc(req.params.id).update({ pinHash: hashPin(DEFAULT_PIN) });
   res.json({ ok: true, message: `비밀번호를 ${DEFAULT_PIN}로 되돌렸어요` });
@@ -1509,7 +1599,7 @@ app.get('/api/board/:id/posts', auth, wrap(async (req, res) => {
 }));
 
 // 사진 파일 (<img src>가 헤더를 못 보내서 ?t=토큰으로 확인)
-app.get('/api/board/photo/:id', auth, wrap(async (req, res) => {
+app.get('/api/board/photo/:id', mediaAuth, wrap(async (req, res) => {
   const d = await db.collection('boardPhotos').doc(String(req.params.id)).get();
   if (!d.exists) return res.status(404).json({ error: '사진을 찾을 수 없어요' });
   res.set('Content-Type', 'image/jpeg');
@@ -1517,8 +1607,8 @@ app.get('/api/board/photo/:id', auth, wrap(async (req, res) => {
   res.send(Buffer.from(d.data().data, 'base64'));
 }));
 
-// 첨부 파일 (?t=토큰으로 확인, ?dl=1이면 내려받기)
-app.get('/api/board/file/:id', auth, wrap(async (req, res) => {
+// 첨부 파일 (?m=사진·파일 보기 표로 확인, ?dl=1이면 내려받기)
+app.get('/api/board/file/:id', mediaAuth, wrap(async (req, res) => {
   const d = await db.collection('boardFiles').doc(String(req.params.id)).get();
   if (!d.exists) return res.status(404).json({ error: '파일을 찾을 수 없어요' });
   const f = d.data();
@@ -2432,7 +2522,10 @@ app.post('/api/admin/settings', guard('teacher'), wrap(async (req, res) => {
 
 app.get('/api/country', wrap(async (req, res) => {
   const S = await getSettings();
-  res.json({ name: S.나라이름, currency: S.화폐단위, googleClientId: GOOGLE_CLIENT_ID });
+  res.json({
+    name: S.나라이름, currency: S.화폐단위, googleClientId: GOOGLE_CLIENT_ID,
+    privacy: { owner: S.개인정보책임자, contact: S.개인정보연락처, school: S.학교이름, location: S.데이터저장위치, since: S.처리방침시행일 },
+  });
 }));
 
 // 서버 깨우기용

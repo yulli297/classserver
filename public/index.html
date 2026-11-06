@@ -4,12 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>돼지공주나라</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap">
 <style>
 :root { --ink:#191F28; --sub:#6B7684; --blue:#3182F6; --blue-d:#1B64DA; --blue-s:#E8F3FF; --bg:#F2F4F6; --line:#E5E8EB; --red:#F04452; --green:#00B26B; }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Noto Sans KR', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans CJK KR', system-ui, sans-serif; /* 기기에 있는 한글 글꼴을 써요 (외부 글꼴 서버에 접속하지 않아요) */ -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
 button { font-family: inherit; }
 
@@ -21,6 +19,7 @@ button { font-family: inherit; }
 .lbox { width: 100%; max-width: 340px; background: #fff; border-radius: 22px; padding: 22px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 10px 30px rgba(25,31,40,.08); }
 .lbox input { width: 100%; height: 52px; border: 1.5px solid var(--line); border-radius: 14px; padding: 0 16px; font-size: 17px; font-family: inherit; background: #F9FAFB; }
 .lbox input:focus { outline: 3px solid var(--blue); outline-offset: 1px; background: #fff; }
+.plink { display: block; text-align: center; color: var(--sub); font-size: 13px; margin-top: 6px; padding: 8px; }
 .linkbtn { background: none; border: 0; color: var(--sub); font-size: 14px; cursor: pointer; padding: 8px; min-height: 44px; }
 .gwrap { display: flex; flex-direction: column; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 14px; }
 .err { color: var(--red); font-size: 14px; font-weight: 500; min-height: 18px; margin: 0; text-align: center; }
@@ -312,6 +311,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
     <div id="gwrap" class="gwrap" hidden>
       <div id="gbtn"></div>
     </div>
+    <a class="plink" href="/privacy.html" target="_blank" rel="noopener">개인정보 처리방침</a>
   </form>
 </div>
 
@@ -506,7 +506,7 @@ $('#logout').onclick = logout;
 
 async function enter() {
   const w = await api('/api/whoami');
-  st.role = w.role; st.perms = w.perms || []; st.myId = w.id || ''; st.myName = w.name || '';
+  st.media = w.media || ''; st.mediaAt = Date.now(); st.role = w.role; st.perms = w.perms || []; st.myId = w.id || ''; st.myName = w.name || '';
   if (isTeacher()) {
     const a = await api('/api/admin/students');
     st.adm.students = a;
@@ -919,7 +919,7 @@ function studentsTable(a) {
       `<td><input class="mini" data-f="math" type="number" value="${s.math !== null ? s.math : ''}" placeholder="-"> <small>${s.mathGrade ? s.mathGrade + '등급' : ''}</small></td>` +
       `<td><select class="sel-s" data-f="job">${jobOpts(s.jobId)}</select></td>` +
       `<td>${s.seat ? esc(String(s.seat).replace('P', '')) + (s.seatPaid ? ' <span class="badge green">냄</span>' : '') : '<small style="color:var(--sub)">없음</small>'}</td>` +
-      `<td><button class="btn tiny gray" data-act="resetPin" data-id="${esc(s.id)}">비번 초기화</button></td></tr>`).join('') + `</tbody></table></div>`;
+      `<td><button class="btn tiny gray" data-act="resetPin" data-id="${esc(s.id)}">비번 초기화</button> <button class="btn tiny gray" data-act="stuDel" data-id="${esc(s.id)}">삭제</button></td></tr>`).join('') + `</tbody></table></div>`;
 }
 function payrollPanel(a) {
   const withJob = a.students.filter((s) => s.jobId);
@@ -959,6 +959,7 @@ const SET_LABELS = [
   ['세금초기화일', '세금 주기 시작일 (2~28)', '이 날 새 세금 주기가 시작돼요'], ['빚허용', '세금 빚 허용 (Y/N)', 'Y면 잔액이 모자라도 세금은 빚으로 납부'], ['빚이면구매금지', '빚이면 구매 금지 (Y/N)', 'Y면 빚이 있으면 간식·쿠폰 불가'],
   ['신용시작점수', '신용 시작 점수', ''], ['신용등급컷', '신용 등급 기준', '1/2/3/4등급 최소 점수'], ['수학등급컷', '수학 등급 기준', '1/2/3/4등급 최소 점수'], ['수학최대점수', '수학 최대 점수', ''], ['공동구매최소금액', '공동구매 최소 금액', ''], ['예금최소금액', '예금 최소 금액', ''], ['예금최대일수', '예금 최대 기간 (일)', '이 일수 이하 상품만 보여요'], ['보드최대사진', '보드 글당 사진 수', '한 글에 붙일 수 있는 사진 장수'], ['보드최대파일', '보드 글당 파일 수', '한 글에 붙일 수 있는 파일(md·pdf·txt) 개수'], ['글당최대댓글', '보드 글당 댓글 수', ''], ['지각벌금', '지각 벌금', '경찰이 지각에 매기는 금액'], ['일일벌금건수', '경찰 하루 벌금 신청 횟수', ''], ['과제최대개수', '진행 중인 과제 최대 개수', '학생 화면에 한 번에 보이는 과제 수'], ['과제미제출감점', '감점 과제 미제출 시 깎는 점수', '“미제출 감점”을 켠 과제에만 적용돼요'], ['벌금최대금액', '벌금 한 번 최대 금액', ''], ['통로위치', '자리표 통로 위치', '예: 2,4 → 2칸·4칸 뒤에 통로'],
 ];
+SET_LABELS.push(['학교이름', '학교 이름 (처리방침)', '개인정보 처리방침에 보여요'], ['개인정보책임자', '개인정보 보호책임자', '예: 6학년 3반 담임교사 홍길동'], ['개인정보연락처', '책임자 연락처', '학교 전화번호나 업무용 이메일'], ['데이터저장위치', '데이터 저장 위치', 'Firebase 콘솔 → Firestore → 위치 (예: asia-northeast3 서울)'], ['처리방침시행일', '처리방침 시행일', '예: 2026-11-06']);
 function settingsPanel() {
   const s = st.adm.settings;
   if (!s) { loadSettings(); return '<p class="note">불러오는 중…</p>'; }
@@ -1169,6 +1170,19 @@ const ACT = {
     closeModal(); if (r) { toast(r.message); st.adm.assign = null; st.jobs = null; await loadAdmStudents(false); loadJobs(); loadInfo(); }
   },
   /* 기본정보 교사 모드 */
+  stuDel: (d) => {
+    const s = st.adm.students.students.find((x) => x.id === d.id); if (!s) return;
+    openModal(`<h3>${esc(s.name)} 학생을 삭제할까요?</h3><p>이 학생의 계정과 거래·신용·구매·예금·보드 글과 사진·신청 기록이 모두 지워지고 되돌릴 수 없어요. 국고 기록은 반 전체 돈이라 금액은 남기고 학생 표시만 지워요.</p><div class="field"><label for="stuDelName">확인을 위해 학생 이름을 그대로 적어 주세요</label><input id="stuDelName" autocomplete="off"></div><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="stuDelGo" data-id="${esc(s.id)}">삭제하기</button></div>`);
+  },
+  stuDelGo: async (d) => {
+    const r = await run('지우는 중이에요', () => api(`/api/admin/students/${encodeURIComponent(d.id)}/delete`, { method: 'POST', body: { confirm: val('stuDelName') } }));
+    if (r) { closeModal(); toast(r.message); st.adm.students = null; st.adm.assign = null; st.board = null; st.posts = null; st.info = null; st.asId = ''; await loadAdmStudents(false); fillAsSel(); renderInfo(); }
+  },
+  wipeAll: () => openModal(`<h3>학년말 전체 삭제</h3><p>학생 명단과 모든 활동 기록(거래·국고·신용·구매·예금·공동구매·승인·과제·보드 글·사진·파일)이 지워지고 되돌릴 수 없어요. 직업·상점 상품·이자율·설정·자리 칸은 남아요.</p><p class="note">필요하면 먼저 화면 내용을 따로 저장해 두세요.</p><div class="field"><label for="wipeWord">확인 문구 <b>전체삭제</b>를 입력해 주세요</label><input id="wipeWord" autocomplete="off"></div><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="wipeAllGo">모두 지우기</button></div>`),
+  wipeAllGo: async () => {
+    const r = await run('지우는 중이에요', () => api('/api/admin/reset-all', { method: 'POST', body: { confirm: val('wipeWord') } }));
+    if (r) { closeModal(); toast(r.message); st.adm = { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null, approvals: null, jobs: null }; st.board = null; st.posts = null; st.boardId = ''; st.info = null; st.shop = null; st.bank = null; st.jobs = null; st.groups = null; st.w = {}; st.asId = ''; await loadAdmStudents(false); fillAsSel(); renderAll(); }
+  },
   resetPin: async (d) => {
     const r = await run('처리 중이에요', () => api(`/api/admin/students/${d.id}/resetpin`, { method: 'POST', body: {} }));
     if (r) toast(r.message);
@@ -1285,6 +1299,7 @@ async function loadBoards() {
   renderBoard();
 }
 async function openBoard(id) {
+  if (!st.media || Date.now() - (st.mediaAt || 0) > 12 * 3600 * 1000) { try { const w = await api('/api/whoami'); st.media = w.media || ''; st.mediaAt = Date.now(); } catch (e) {} }
   st.boardId = id; st.posts = null; st.bv = null; renderBoard();
   try { st.posts = await api('/api/board/' + encodeURIComponent(id) + '/posts'); } catch (e) { toast(e.message, true); st.boardId = ''; }
   renderBoard();
@@ -1367,10 +1382,10 @@ async function fdragEnd(e) {
 }
 document.addEventListener('click', (e) => { if (st.noClick && Date.now() - st.noClick < 400 && e.target.closest && e.target.closest('#bview .post')) { e.stopPropagation(); e.preventDefault(); } st.noClick = 0; }, true);
 document.addEventListener('dragstart', (e) => { if (e.target.closest && e.target.closest('#bview')) e.preventDefault(); }, true);
-const fileUrl = (id, dl) => '/api/board/file/' + encodeURIComponent(id) + '?t=' + encodeURIComponent(st.token || '') + (dl ? '&dl=1' : '');
+const fileUrl = (id, dl) => '/api/board/file/' + encodeURIComponent(id) + '?m=' + encodeURIComponent(st.media || '') + (dl ? '&dl=1' : '');
 const fmtSize = (n) => (n >= 1000000 ? (n / 1000000).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1000)) + 'KB');
 const filesHtml = (files) => (files && files.length ? `<div class="pfiles">` + files.map((f) => `<div class="pfile"><a class="fn" href="${fileUrl(f.id)}" target="_blank" rel="noopener noreferrer" title="${esc(f.name)}">📄 ${esc(f.name)}</a><small>${fmtSize(f.size)}</small><a class="fdl" href="${fileUrl(f.id, true)}" download>받기</a></div>`).join('') + `</div>` : '');
-const photoUrl = (id) => '/api/board/photo/' + encodeURIComponent(id) + '?t=' + encodeURIComponent(st.token || '');
+const photoUrl = (id) => '/api/board/photo/' + encodeURIComponent(id) + '?m=' + encodeURIComponent(st.media || ''); // 사진·파일 보기만 되는 표(하루짜리)를 붙여요
 function renderBoard() {
   const el = $('#lf-board'); if (!el) return;
   let body = leafHead('우리반 보드', '우리 반 이야기를<br>함께 남겨요', 'board', isTeacher());
@@ -1721,11 +1736,17 @@ function approvalsPanel() {
   if (a.done.length) h += `<details style="margin-top:20px"><summary style="cursor:pointer;font-weight:700">최근 처리한 신청</summary>` + a.done.map((p) => `<div class="mrow"><div class="t"><span class="badge gray">${esc(p.status)}</span> ${esc(p.type)} · <b>${esc(p.student)}</b> ${fmt(p.amount)}<i>${esc(p.requester)} · ${esc(p.reason)}</i></div></div>`).join('') + `</details>`;
   return h;
 }
-const SUBS_ETC = [['jobs', '직업 변경·추가'], ['seats', '자리 확인'], ['submit', '과제 즉시 체크'], ['assign', '과제 만들기·관리']];
+const SUBS_ETC = [['jobs', '직업 변경·추가'], ['seats', '자리 확인'], ['submit', '과제 즉시 체크'], ['assign', '과제 만들기·관리'], ['privacy', '개인정보']];
 function etcPanel() {
   const k = st.sub.etc;
-  const inner = k === 'jobs' ? jobsEditorHtml() : k === 'seats' ? seatsHtml() : k === 'assign' ? asgPanelHtml(true) : submitHtml(true);
+  const inner = k === 'jobs' ? jobsEditorHtml() : k === 'seats' ? seatsHtml() : k === 'assign' ? asgPanelHtml(true) : k === 'privacy' ? privacyPanelHtml() : submitHtml(true);
   return `${subSegs('etc', SUBS_ETC)}${inner}`;
+}
+/* ---- 개인정보 ---- */
+function privacyPanelHtml() {
+  return `<div class="list"><h2>개인정보 처리방침</h2><p class="note">로그인 화면 아래 링크로 누구나 볼 수 있어요. 책임자·연락처·학교 이름·저장 위치는 기본정보 → 교사 모드 → 설정에서 바꿔요.</p><div class="row-btn"><a class="btn gray" href="/privacy.html" target="_blank" rel="noopener">처리방침 열기</a></div></div>
+  <div class="list"><h2>학생 한 명 삭제</h2><p class="note">기본정보 → 교사 모드 → 학생 관리에서 학생 줄의 “삭제”를 눌러요. 보호자가 삭제를 요청하거나 전학 갈 때 써요.</p></div>
+  <div class="list"><h2>학년말 전체 삭제</h2><p class="note">학년이 끝나면(2월) 학생 명단과 모든 활동 기록을 지워요. 직업·상점 상품·이자율·설정·자리 칸은 남겨서 다음 해에 그대로 써요.</p><div class="row-btn"><button class="btn red" data-act="wipeAll">전체 삭제하기</button></div></div>`;
 }
 /* ---- 직업 변경·추가 ---- */
 async function loadAdmJobs() { try { st.adm.jobs = await api('/api/admin/jobs'); } catch (e) { toast(e.message, true); } renderInfo(); }
