@@ -954,7 +954,10 @@ function registerPanel(a) {
   return `<h2>학생 등록</h2><p class="note">한 줄에 한 명씩, 번호 순서대로 이름을 적어 주세요. 이미 있는 번호는 건드리지 않아요. 처음 비밀번호는 모두 1111이에요.</p>
   <div class="form"><div class="field" style="flex-basis:100%"><textarea id="names" placeholder="김가온&#10;이나래&#10;박다온">${esc(a.students.map((s) => s.name).join('\n'))}</textarea></div></div>
   <button type="button" class="btn" data-act="seedGo">등록하기</button>
-  ${a.students.length ? `<h2 style="margin-top:28px">이름 고치기</h2><div class="form"><div class="field"><label for="rnId">학생</label><select id="rnId">${a.students.map((s) => `<option value="${esc(s.id)}">${esc(s.id)} ${esc(s.name)}</option>`).join('')}</select></div><div class="field"><label for="rnName">새 이름</label><input id="rnName" type="text"></div><button type="button" class="btn sec small" data-act="renameGo">고치기</button></div>` : ''}`;
+  ${a.students.length ? `<h2 style="margin-top:28px">이름 고치기</h2><div class="form"><div class="field"><label for="rnId">학생</label><select id="rnId">${a.students.map((s) => `<option value="${esc(s.id)}">${esc(s.id)} ${esc(s.name)}</option>`).join('')}</select></div><div class="field"><label for="rnName">새 이름</label><input id="rnName" type="text"></div><button type="button" class="btn sec small" data-act="renameGo">고치기</button></div>
+  <h2 style="margin-top:28px">수학 점수 한꺼번에 입력</h2><p class="note">한 줄에 한 명씩, 번호 순서대로 점수를 적어 주세요. 빈 줄은 건너뛰고 그 학생의 점수는 그대로 둬요.</p>
+  <div class="form"><div class="field" style="flex-basis:100%"><textarea id="mathBulk" placeholder="85&#10;&#10;72"></textarea></div></div>
+  <button type="button" class="btn" data-act="mathBulkGo">점수 저장</button>` : ''}`;
 }
 const SET_LABELS = [
   ['화폐단위', '화폐 이름', ''], ['나라이름', '나라 이름', ''], ['월세', '월세', '자리를 사지 않은 학생이 내는 금액'], ['소득세율', '소득세율 (%)', '월급에서 원천징수'],
@@ -1219,6 +1222,11 @@ const ACT = {
       await loadAdmStudents(false);
       fillAsSel(); st.info = null; loadInfo(); renderInfo();
     }
+  },
+  mathBulkGo: async () => {
+    const scores = val('mathBulk').split('\n').map((x) => x.trim());  // 빈 줄도 번호 자리라서 지우지 않아요
+    const r = await run('저장하는 중이에요', () => api('/api/admin/students/mathbulk', { method: 'POST', body: { scores } }));
+    if (r) { toast(r.message); await loadAdmStudents(); st.info = null; loadInfo(); }
   },
   renameGo: async () => {
     const r = await run('고치는 중이에요', () => api(`/api/admin/students/${val('rnId')}/rename`, { method: 'POST', body: { name: val('rnName') } }));

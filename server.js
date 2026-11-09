@@ -36,7 +36,7 @@ const DEFAULTS = {
   세금초기화일: 16, // 매달 이 날 새 세금 주기가 시작
   신용시작점수: 15,
   신용등급컷: '24,18,12,6',
-  수학등급컷: '90,80,70,60',
+  수학등급컷: '80,64,40,28',
   제출점수: 1,
   미제출점수: 0,
   수학최대점수: 100,
@@ -236,6 +236,11 @@ async function getSettings() {
   if (!stored.보드사진6적용) {
     if (!(Number(stored.보드최대사진) > 6)) stored.보드최대사진 = 6;
     db.collection('meta').doc('settings').set({ 보드최대사진: stored.보드최대사진, 보드사진6적용: true }, { merge: true }).catch((e) => console.error(e));
+  }
+  // 한 번만: 수학 등급 기준을 80/64/40/28로 바꿔요 (2026-11 단원평가 기준). 이미 저장돼 있던 90/80/70/60도 덮어써요. 그 뒤에는 설정에서 바꾼 값을 따라요.
+  if (!stored.수학등급컷1109적용) {
+    stored.수학등급컷 = '80,64,40,28';
+    db.collection('meta').doc('settings').set({ 수학등급컷: stored.수학등급컷, 수학등급컷1109적용: true }, { merge: true }).catch((e) => console.error(e));
   }
   const value = { ...DEFAULTS, ...stored };
   settingsCache = { at: Date.now(), value };
@@ -1292,6 +1297,30 @@ app.post('/api/admin/reset-all', guard('teacher'), wrap(async (req, res) => {
 app.post('/api/admin/students/:id/resetpin', guard('teacher'), wrap(async (req, res) => {
   await db.collection('students').doc(req.params.id).update({ pinHash: hashPin(DEFAULT_PIN) });
   res.json({ ok: true, message: `비밀번호를 ${DEFAULT_PIN}로 되돌렸어요` });
+}));
+// 수학 점수 한꺼번에 입력: 한 줄에 한 명, 줄 순서가 번호. 빈 줄은 건너뛰어요(그 학생의 점수는 그대로).
+app.post('/api/admin/students/mathbulk', guard('teacher'), wrap(async (req, res) => {
+  const S = await getSettings();
+  const max = Number(S.수학최대점수);
+  const lines = Array.isArray(req.body.scores) ? req.body.scores : [];
+  if (lines.length > 100) throw new UserError('한 번에 100명까지만 넣을 수 있어요');
+  const todo = [];
+  lines.forEach((raw, n) => {
+    const t = String(raw).trim();
+    if (!t) return;
+    const v = Number(t);
+    if (!Number.isFinite(v) || v < 0 || v > max) throw new UserError(`${n + 1}번 점수를 확인해 주세요 (0~${max} 사이 숫자)`);
+    todo.push([String(n + 1), v]);
+  });
+  if (!todo.length) throw new UserError('점수를 한 줄에 한 명씩, 번호 순서대로 적어 주세요');
+  const refs = todo.map(([id]) => db.collection('students').doc(id));
+  const docs = await db.getAll(...refs);
+  const missing = docs.filter((d) => !d.exists).map((d) => d.id);
+  if (missing.length) throw new UserError(`등록되지 않은 번호가 있어요: ${missing.join(', ')}번 (아무것도 저장하지 않았어요)`);
+  const batch = db.batch();
+  refs.forEach((r, i) => batch.update(r, { math: todo[i][1] }));
+  await batch.commit();
+  res.json({ ok: true, message: `${todo.length}명의 수학 점수를 저장했어요` });
 }));
 app.post('/api/admin/students/:id/math', guard('teacher'), wrap(async (req, res) => {
   const v = req.body.score === '' || req.body.score === null ? null : Number(req.body.score);
