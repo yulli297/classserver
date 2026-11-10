@@ -11,8 +11,11 @@ const TEACHER_PASSWORD = process.env.TEACHER_PASSWORD || 'teacher1234';
 // 구글 계정으로 선생님 자동 로그인: 구글 Cloud에서 만든 웹 클라이언트 ID를 GOOGLE_CLIENT_ID에 넣으면 켜져요.
 // 아래 계정으로 구글 로그인하면 선생님으로 들어가요. 바꾸려면 환경변수 TEACHER_GOOGLE_EMAILS(쉼표로 구분)를 쓰세요.
 const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
+// [임시] 구글 계정 → 학생 연결. 이 계정으로 구글 로그인하면 선생님이 아니라 아래 이름의 학생으로 들어가요.
+// 조동인 학생 패드 수리 동안 교사용 패드(b150 계정)를 쓰기 때문이에요. 다 쓰면 이 줄의 내용을 지우면 원래대로 돌아가요.
+const GOOGLE_STUDENT_LINKS = { 'e.cg.b150@on.use.go.kr': '조동인' };
 const TEACHER_GOOGLE_EMAILS = (process.env.TEACHER_GOOGLE_EMAILS || 'ddchani37@gmail.com,e.cg.b150@on.use.go.kr')
-  .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+  .split(',').map((e) => e.trim().toLowerCase()).filter((e) => e && !GOOGLE_STUDENT_LINKS[e]);
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
 
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
@@ -213,7 +216,10 @@ function readToken(token) {
   const expected = crypto.createHmac('sha256', SECRET).update(body).digest('base64url');
   if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
   const data = JSON.parse(Buffer.from(body, 'base64url').toString());
-  return data.exp > Date.now() ? data : null;
+  if (!(data.exp > Date.now())) return null;
+  // 구글로 들어온 선생님 토큰은 그 계정이 아직 선생님 목록에 있을 때만 통해요 (목록에서 빠진 기기는 바로 풀려요)
+  if (data.role === 'teacher' && data.via === 'google' && !TEACHER_GOOGLE_EMAILS.includes(data.em)) return null;
+  return data;
 }
 
 const wrap = (fn) => async (req, res) => {
@@ -461,8 +467,14 @@ app.post('/api/login/google', wrap(async (req, res) => {
   }
   const email = String(info.email || '').toLowerCase();
   if (!email || String(info.email_verified) !== 'true') throw new UserError('확인된 구글 계정이 아니에요');
+  const linked = GOOGLE_STUDENT_LINKS[email];
+  if (linked) { // [임시] 학생과 연결된 구글 계정이면 그 학생으로 들어가요
+    const q = await db.collection('students').where('name', '==', linked).limit(1).get();
+    if (q.empty) throw new UserError(`${linked} 학생을 찾지 못했어요`);
+    return res.json({ token: makeToken({ role: 'student', id: q.docs[0].id }, 24 * 60), role: 'student' });
+  }
   if (!TEACHER_GOOGLE_EMAILS.includes(email)) throw new UserError('선생님 계정이 아니에요. 학생은 번호와 비밀번호로 들어가요');
-  res.json({ token: makeToken({ role: 'teacher', via: 'google' }, 24 * 60), role: 'teacher' });
+  res.json({ token: makeToken({ role: 'teacher', via: 'google', em: email }, 24 * 60), role: 'teacher' });
 }));
 
 app.post('/api/pin', auth, studentOnly, wrap(async (req, res) => {

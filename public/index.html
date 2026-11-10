@@ -465,7 +465,7 @@ async function googleCredential(resp) {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || '서버에 문제가 생겼어요');
     st.token = j.token; saveToken();
-    try { localStorage.setItem('pigteacherdev', '1'); } catch (e) {} // 선생님이 구글로 들어온 기기는 다음부터 자동 로그인 안내가 떠요
+    try { localStorage.setItem('pigteacherdev', '1'); } catch (e) {} // 구글로 들어온 기기는 다음부터 자동 로그인 안내가 떠요 (학생과 연결된 구글 계정이면 그 학생으로 들어가요)
     await enter();
   } catch (err) { $('#lerr').textContent = err.message; }
 }
