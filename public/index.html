@@ -352,12 +352,12 @@ const val = (id) => { const e = document.getElementById(id); return e ? e.value 
 
 const TABS = [
   { id: 'info', label: '기본정보', bg: '#FFE99A' },
+  { id: 'etc', label: '기타', bg: '#FFFFFF', teacher: true },
   { id: 'bank', label: '은행', bg: '#C9E4FF' },
   { id: 'shop', label: '상점', bg: '#FFC9D4' },
   { id: 'jobs', label: '직업소', bg: '#C8F1D4' },
   { id: 'work', label: '직업 활동', bg: '#E3D0FF' },
   { id: 'board', label: '우리반 보드', bg: '#FFD9B8' },
-  { id: 'etc', label: '기타', bg: '#FFFFFF', teacher: true },
 ];
 const tabsNow = () => TABS.filter((t) => !t.teacher || isTeacher());
 
