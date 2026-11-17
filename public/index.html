@@ -370,7 +370,7 @@ const tabsNow = () => TABS.filter((t) => !t.teacher || isTeacher());
 const st = {
   token: null, role: null, perms: [], myId: '', myName: '', asId: '',
   tab: 'info', info: null, history: null, shop: null, shopTab: '세금', groups: null, bank: null, jobs: null,
-  board: null, boardId: '', posts: null, tm: { info: false, shop: false, bank: false, jobs: false, board: false, work: false }, sub: { info: 'approvals', shop: 'items', etc: 'jobs' }, w: {},
+  board: null, boardId: '', posts: null, tm: { info: false, shop: false, bank: false, jobs: false, board: false, work: false }, sub: { shop: 'items', etc: 'approvals' }, w: {},
   adm: { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null, approvals: null, jobs: null },
   sel: new Set(), forms: {},
 };
@@ -519,17 +519,16 @@ async function enter() {
   if (isTeacher()) {
     const a = await api('/api/admin/students');
     st.adm.students = a;
-    // 선생님은 학생 미리보기 없이 시작하고, 기본정보 교사 모드가 자동으로 켜져요
+    // 선생님은 학생 미리보기 없이 시작하고, 선생님 도구가 모인 “기타”가 먼저 열려요
     st.asId = '';
-    st.tm.info = true;
-    st.sub.info = a.students.length ? 'approvals' : 'register';
+    st.sub.etc = a.students.length ? 'approvals' : 'register';
     if (a.students.length) loadApprovals(false).then(() => renderInfo());
   }
   $('#login').hidden = true; $('#app').hidden = false;
   buildFrame();
   $('#whoChip').textContent = isTeacher() ? '선생님 · 학생 화면 미리보기' : st.myName + '님';
   fillAsSel();
-  goTab('info', true);
+  goTab(isTeacher() ? 'etc' : 'info', true);
   loadInfo();
 }
 /* 직업 배정 실시간 반영 (학생 화면)
@@ -625,7 +624,7 @@ function renderEtc() {
 function leafHead(eyebrow, titleHtml, tmKey, tmAllowed) {
   const on = st.tm[tmKey];
   return `<div class="head"><div><p class="eyebrow">${eyebrow}</p><h1>${titleHtml}</h1></div>` +
-    (tmAllowed ? `<button type="button" class="tm ${on ? 'on' : ''}" data-act="tm" data-id="${tmKey}" aria-pressed="${on}">${on ? '교사 모드 닫기' : '교사 모드'}${tmKey === 'info' && isTeacher() && pendingCount() ? ` <span class="badge warn">승인 ${pendingCount()}</span>` : ''}</button>` : '') + '</div>';
+    (tmAllowed ? `<button type="button" class="tm ${on ? 'on' : ''}" data-act="tm" data-id="${tmKey}" aria-pressed="${on}">${on ? '교사 모드 닫기' : '교사 모드'}</button>` : '') + '</div>';
 }
 
 /* ====================================================================
@@ -645,15 +644,15 @@ function renderInfo() {
   let body;
   if (!i) {
     const hasStudents = !!((st.adm.students || {}).students || []).length;
-    body = leafHead('기본정보', isTeacher() ? TEACHER_GREETING : '불러오는 중이에요', 'info', isTeacher()) +
+    body = leafHead('기본정보', isTeacher() ? TEACHER_GREETING : '불러오는 중이에요', 'info', false) +
       (isTeacher() && !st.asId
         ? (hasStudents ? '<div class="empty">위쪽 선택 칸에서 학생을 고르면 그 학생이 보는 화면을 미리 볼 수 있어요.</div>'
-          : '<div class="empty">아직 등록된 학생이 없어요.<br>아래 교사 모드의 “학생 등록”에서 명단을 넣어 주세요.</div>')
+          : '<div class="empty">아직 등록된 학생이 없어요.<br>“기타” 배너의 “학생 등록”에서 명단을 넣어 주세요.</div>')
         : '<div class="empty">잠시만 기다려 주세요…</div>');
   } else {
     const c = i.currency;
     const preview = isTeacher();
-    body = leafHead('기본정보', isTeacher() ? TEACHER_GREETING : `${esc(i.name)}님, 안녕하세요<br>오늘의 ${esc(c)}을 확인해 보세요`, 'info', isTeacher());
+    body = leafHead('기본정보', isTeacher() ? TEACHER_GREETING : `${esc(i.name)}님, 안녕하세요<br>오늘의 ${esc(c)}을 확인해 보세요`, 'info', false);
     body += `<div class="hero">` +
       (i.debt ? `<div class="notice">월급을 받으면 자동으로 갚아져요. 그때까지 간식·쿠폰은 살 수 없어요.</div>` : '') +
       `<small>${i.debt ? '갚아야 할 빚' : '내 ' + esc(c)}</small>` +
@@ -674,7 +673,6 @@ function renderInfo() {
     body += `<div class="list"><h2>최근 내역</h2>` + historyHtml((st.history || []).slice(0, 8)) +
       ((st.history || []).length > 8 ? `<button type="button" class="btn sec small" data-act="allHistory">전체 보기</button>` : '') + `</div>`;
   }
-  if (st.tm.info && isTeacher()) body += infoTeacherPanel();
   el.innerHTML = body; applyTm(el, 'info'); renderEtc();
 }
 function historyHtml(list) {
@@ -954,8 +952,7 @@ const SUBS_INFO = [['approvals', '승인'], ['students', '학생 관리'], ['pay
 function subSegs(key, list) {
   return `<div class="segs">` + list.map(([id, label]) => `<button type="button" class="seg ${st.sub[key] === id ? 'on' : ''}" data-act="sub" data-key="${key}" data-id="${id}">${label}</button>`).join('') + `</div>`;
 }
-function infoTeacherPanel() {
-  const sub = st.sub.info;
+function infoTeacherPanel(sub) {
   let inner = '';
   const a = st.adm.students;
   if (!a) { inner = '<p class="note">불러오는 중…</p>'; }
@@ -967,7 +964,7 @@ function infoTeacherPanel() {
   else if (sub === 'settings') inner = settingsPanel();
   else if (sub === 'import') inner = importPanel();
   else if (sub === 'approvals') inner = approvalsPanel();
-  return `<section class="tpanel" aria-label="교사 모드"><span class="lbl">교사 모드</span>${subSegs('info', SUBS_INFO)}${inner}</section>`;
+  return inner;
 }
 async function loadAdmStudents(rerender) {
   try {
@@ -1163,7 +1160,7 @@ const ACT = {
   },
   sub: (d) => {
     st.sub[d.key] = d.id;
-    if (d.key === 'info') renderInfo(); else if (d.key === 'etc') renderEtc(); else renderShop();
+    if (d.key === 'etc') renderEtc(); else renderShop();
   },
   credit: () => showCredit(),
   allHistory: () => showAllHistory(),
@@ -1820,17 +1817,18 @@ function approvalsPanel() {
   if (a.done.length) h += `<details style="margin-top:20px"><summary style="cursor:pointer;font-weight:700">최근 처리한 신청</summary>` + a.done.map((p) => `<div class="mrow"><div class="t"><span class="badge gray">${esc(p.status)}</span> ${esc(p.type)} · <b>${esc(p.student)}</b> ${fmt(p.amount)}<i>${esc(p.requester)} · ${esc(p.reason)}</i></div></div>`).join('') + `</details>`;
   return h;
 }
-const SUBS_ETC = [['jobs', '직업 변경·추가'], ['submit', '과제 즉시 체크'], ['privacy', '개인정보']]; // 자리·과제 관리는 직업 활동 교사 모드(국토교통부 장관·통계청 공무원)로 합쳤어요
+const SUBS_ETC = [...SUBS_INFO, ['jobs', '직업 변경·추가'], ['submit', '과제 즉시 체크'], ['privacy', '개인정보']]; // 예전 기본정보 교사 모드 메뉴를 모두 여기로 합쳤어요. // 자리·과제 관리는 직업 활동 교사 모드(국토교통부 장관·통계청 공무원)로 합쳤어요
 function etcPanel() {
   const k = st.sub.etc;
-  const inner = k === 'submit' ? submitHtml(true) : k === 'privacy' ? privacyPanelHtml() : jobsEditorHtml();
+  const inner = k === 'submit' ? submitHtml(true) : k === 'privacy' ? privacyPanelHtml() : k === 'jobs' ? jobsEditorHtml() : infoTeacherPanel(k);
+  const n = pendingCount(), subs = SUBS_ETC.map(([id, label]) => [id, id === 'approvals' && n ? `${label} <span class="badge warn">${n}</span>` : label]);
   const moved = `<p class="note">자리 관리와 과제 만들기·관리는 <b>직업 활동 → 교사 모드</b>에서 국토교통부 장관·통계청 공무원을 누르면 나와요. <button type="button" class="btn tiny gray" data-act="goWorkTm">직업 활동 열기</button></p>`;
-  return `${subSegs('etc', SUBS_ETC)}${moved}${inner}`;
+  return `${subSegs('etc', subs)}${k === 'jobs' || k === 'submit' ? moved : ''}${inner}`;
 }
 /* ---- 개인정보 ---- */
 function privacyPanelHtml() {
-  return `<div class="list"><h2>개인정보 처리방침</h2><p class="note">로그인 화면 아래 링크로 누구나 볼 수 있어요. 책임자·연락처·학교 이름·저장 위치는 기본정보 → 교사 모드 → 설정에서 바꿔요.</p><div class="row-btn"><a class="btn gray" href="/privacy.html" target="_blank" rel="noopener">처리방침 열기</a></div></div>
-  <div class="list"><h2>학생 한 명 삭제</h2><p class="note">기본정보 → 교사 모드 → 학생 관리에서 학생 줄의 “삭제”를 눌러요. 보호자가 삭제를 요청하거나 전학 갈 때 써요.</p></div>
+  return `<div class="list"><h2>개인정보 처리방침</h2><p class="note">로그인 화면 아래 링크로 누구나 볼 수 있어요. 책임자·연락처·학교 이름·저장 위치는 기타 → 설정에서 바꿔요.</p><div class="row-btn"><a class="btn gray" href="/privacy.html" target="_blank" rel="noopener">처리방침 열기</a></div></div>
+  <div class="list"><h2>학생 한 명 삭제</h2><p class="note">기타 → 학생 관리에서 학생 줄의 “삭제”를 눌러요. 보호자가 삭제를 요청하거나 전학 갈 때 써요.</p></div>
   <div class="list"><h2>학년말 전체 삭제</h2><p class="note">학년이 끝나면(2월) 학생 명단과 모든 활동 기록을 지워요. 직업·상점 상품·이자율·설정·자리 칸은 남겨서 다음 해에 그대로 써요.</p><div class="row-btn"><button class="btn red" data-act="wipeAll">전체 삭제하기</button></div></div>`;
 }
 /* ---- 직업 변경·추가 ---- */
