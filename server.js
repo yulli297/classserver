@@ -1555,7 +1555,7 @@ async function arrangeBoard(boardId, all) {
 }
 async function nameOf() { const names = await studentNames(); return (id) => (id === TEACHER_AUTHOR ? TEACHER_AUTHOR : names[id] || id); }
 const postView = (p, nm, me, extra) => ({ id: p.id, name: nm(p.authorId), at: timeStr(p.at.toDate()), text: p.text, link: p.link, photos: p.photoIds || [], files: p.files || [], x: Number.isFinite(p.x) ? p.x : null, y: Number.isFinite(p.y) ? p.y : null, mine: !!me && p.authorId === me, ...extra });
-const boardOf = (d) => ({ id: d.id, name: d.data().name, desc: d.data().desc || '', comments: d.data().comments !== false, likes: d.data().likes !== false, active: d.data().active !== false, layout: d.data().layout === 'free' ? 'free' : 'grid' });
+const boardOf = (d) => ({ id: d.id, name: d.data().name, desc: d.data().desc || '', comments: d.data().comments !== false, likes: d.data().likes !== false, active: d.data().active !== false, layout: d.data().layout === 'free' ? 'free' : 'grid', pinned: !!d.data().pinned });
 
 async function getBoard(id) {
   const d = await db.collection('boards').doc(String(id || '')).get();
@@ -1636,12 +1636,14 @@ async function writePost(boardId, authorId, b, S, admin) {
   return { message: extra ? `${extra}과(와) 함께 올렸어요!` : '올렸어요!', post };
 }
 
+// 보드 순서: 고정한 보드가 먼저, 그다음 선생님이 정한 순서(sort), 정한 적이 없으면 만든 순서
+const boardSort = (a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (a.sort ?? a.createdMs) - (b.sort ?? b.createdMs) || a.createdMs - b.createdMs;
 // 보드 목록 (선생님은 숨긴 보드도 보임)
 app.get('/api/board', auth, wrap(async (req, res) => {
   const teacher = req.user.role === 'teacher';
   const [bs, counts, S] = await Promise.all([db.collection('boards').get(), boardCounts(), getSettings()]);
-  const boards = bs.docs.map((d) => ({ ...boardOf(d), createdMs: d.data().createdMs || 0, count: counts[d.id] || 0 }))
-    .filter((b) => teacher || b.active).sort((a, b) => a.createdMs - b.createdMs);
+  const boards = bs.docs.map((d) => ({ ...boardOf(d), createdMs: d.data().createdMs || 0, sort: d.data().sort, count: counts[d.id] || 0 }))
+    .filter((b) => teacher || b.active).sort(boardSort).map(({ sort, ...b }) => b);
   res.json({ boards, maxPhotos: Number(S.보드최대사진) || 6, maxFiles: Number(S.보드최대파일) || 3, teacher });
 }));
 
@@ -1766,16 +1768,34 @@ app.post('/api/admin/board', guard('teacher'), wrap(async (req, res) => {
   const name = String(req.body.name || '').trim();
   if (!name) throw new UserError('보드 이름을 적어주세요');
   await db.collection('boards').doc(newId('BD')).set({
-    name, desc: String(req.body.desc || '').trim(), comments: req.body.comments !== false, likes: req.body.likes !== false, active: true, createdMs: Date.now(), layout: req.body.layout === 'free' ? 'free' : 'grid',
+    name, desc: String(req.body.desc || '').trim(), comments: req.body.comments !== false, likes: req.body.likes !== false, active: true, createdMs: Date.now(), sort: Date.now(), layout: req.body.layout === 'free' ? 'free' : 'grid',
   });
   res.json({ ok: true, message: `"${name}" 보드를 만들었어요` });
+}));
+// 보드 순서 바꾸기: 맨 앞으로 / 한 칸 앞으로 / 한 칸 뒤로 (고정한 보드끼리, 고정 안 한 보드끼리 움직여요)
+app.post('/api/admin/boards/reorder', guard('teacher'), wrap(async (req, res) => {
+  const id = String(req.body.id || ''), dir = String(req.body.dir || '');
+  if (!['top', 'up', 'down'].includes(dir)) throw new UserError('방향을 확인해 주세요');
+  const snap = await db.collection('boards').get();
+  const all = snap.docs.map((d) => ({ id: d.id, ref: d.ref, pinned: !!d.data().pinned, sort: d.data().sort, createdMs: d.data().createdMs || 0 })).sort(boardSort);
+  const me = all.find((x) => x.id === id);
+  if (!me) throw new UserError('보드를 찾을 수 없어요');
+  const group = all.filter((x) => x.pinned === me.pinned), i = group.indexOf(me);
+  const to = dir === 'top' ? 0 : dir === 'up' ? i - 1 : i + 1;
+  if (to < 0 || to >= group.length || to === i) return okMsg(res, dir === 'down' ? '이미 맨 뒤예요' : '이미 맨 앞이에요');
+  group.splice(i, 1); group.splice(to, 0, me);
+  const order = [...(me.pinned ? group : all.filter((x) => x.pinned)), ...(me.pinned ? all.filter((x) => !x.pinned) : group)];
+  const b = db.batch();
+  order.forEach((x, n) => { if (x.sort !== n + 1) b.update(x.ref, { sort: n + 1 }); });
+  await b.commit();
+  okMsg(res, '순서를 바꿨어요');
 }));
 app.post('/api/admin/board/:id', guard('teacher'), wrap(async (req, res) => {
   await getBoard(req.params.id);
   const b = req.body, patch = {};
   if (b.name !== undefined && String(b.name).trim()) patch.name = String(b.name).trim();
   if (b.desc !== undefined) patch.desc = String(b.desc).trim();
-  ['comments', 'likes', 'active'].forEach((k) => { if (b[k] !== undefined) patch[k] = !!b[k]; });
+  ['comments', 'likes', 'active', 'pinned'].forEach((k) => { if (b[k] !== undefined) patch[k] = !!b[k]; });
   if (b.layout !== undefined) { if (!['grid', 'free'].includes(b.layout)) throw new UserError('배치 방식을 확인해 주세요'); patch.layout = b.layout; }
   await db.collection('boards').doc(req.params.id).update(patch);
   if (patch.layout === 'free') await arrangeBoard(req.params.id, false); // 처음 자유 배치로 바꾸면 자리가 없는 글을 격자로 놓아요

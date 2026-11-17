@@ -980,7 +980,7 @@ async function loadAdmStudents(rerender) {
 function studentsTable(a) {
   if (!a.students.length) return '<p class="note">등록된 학생이 없어요. “학생 등록”에서 명단을 넣어 주세요.</p>';
   const jobOpts = (cur) => `<option value="">직업 없음</option>` + a.jobs.map((j) => `<option value="${j.id}" ${cur === j.id ? 'selected' : ''}>${esc(j.name)} (${j.count}/${j.capacity || '∞'})</option>`).join('');
-  return `<p class="note">직업 · 수학 점수는 바꾸면 바로 저장돼요. 자리는 “기타 → 자리 확인”에서 정해요. 돈을 낸 자리의 친구는 월세가 면제돼요.</p>
+  return `<p class="note">직업 · 수학 점수는 바꾸면 바로 저장돼요. 자리는 “직업 활동 → 교사 모드 → 국토교통부 장관”에서 정해요. 돈을 낸 자리의 친구는 월세가 면제돼요.</p>
   <div class="tscroll"><table class="tbl"><thead><tr><th>번호</th><th>이름</th><th>${esc(a.currency)}</th><th>신용</th><th>수학</th><th>직업</th><th>자리</th><th></th></tr></thead><tbody>` +
     a.students.map((s) => `<tr data-sid="${esc(s.id)}"><td>${esc(s.id)}</td><td>${esc(s.name)}</td><td class="num ${s.debt ? 'neg' : ''}">${fmt(s.balance)}</td>` +
       `<td>${s.creditGrade}등급 (${s.creditTotal})</td>` +
@@ -1486,7 +1486,7 @@ function renderBoardFull() {
 function boardListHtml() {
   const list = st.board.boards;
   if (!list.length) return `<div class="empty">아직 열린 보드가 없어요.${isTeacher() ? '<br>교사 모드에서 보드를 만들어 보세요.' : ''}</div>`;
-  return `<div class="grid">` + list.map((b) => `<button type="button" class="card bcard" data-act="bOpen" data-id="${esc(b.id)}">${b.active ? '' : '<span class="badge gray">학생에게 숨김</span>'}${b.layout === 'free' ? '<span class="badge">자유 배치</span>' : ''}<div class="nm">${esc(b.name)}</div><div class="ds">${esc(b.desc)}</div><div class="st">글 ${fmt(b.count)}개</div></button>`).join('') + `</div>`;
+  return `<div class="grid">` + list.map((b) => `<button type="button" class="card bcard" data-act="bOpen" data-id="${esc(b.id)}">${b.pinned ? '<span class="badge warn">📌 고정</span>' : ''}${b.active ? '' : '<span class="badge gray">학생에게 숨김</span>'}${b.layout === 'free' ? '<span class="badge">자유 배치</span>' : ''}<div class="nm">${esc(b.name)}</div><div class="ds">${esc(b.desc)}</div><div class="st">글 ${fmt(b.count)}개</div></button>`).join('') + `</div>`;
 }
 function boardViewHtml() {
   const P = st.posts;
@@ -1609,15 +1609,20 @@ document.addEventListener('change', async (e) => {
 
 /* 교사 모드 */
 function boardTeacherPanel() {
-  const rows = st.board.boards.map((b) => `<div class="mrow"><div class="t"><b>${esc(b.name)}</b> ${b.active ? '' : '<span class="badge gray">숨김</span>'}<i>${esc(b.desc)} · 글 ${fmt(b.count)}개</i></div><div class="acts">
+  const L = st.board.boards;
+  const rows = L.map((b, n) => { const first = n === 0 || L[n - 1].pinned !== b.pinned, last = n === L.length - 1 || L[n + 1].pinned !== b.pinned; return `<div class="mrow"><div class="t"><b>${b.pinned ? '📌 ' : ''}${esc(b.name)}</b> ${b.active ? '' : '<span class="badge gray">숨김</span>'}<i>${esc(b.desc)} · 글 ${fmt(b.count)}개</i></div><div class="acts">
+    <button type="button" class="btn tiny ${b.pinned ? '' : 'gray'}" data-act="bdTog" data-id="${esc(b.id)}" data-k="pinned">${b.pinned ? '고정 풀기' : '📌 맨 위 고정'}</button>
+    <button type="button" class="btn tiny gray" data-act="bdMove" data-id="${esc(b.id)}" data-dir="top"${first ? ' disabled' : ''}>맨 앞으로</button>
+    <button type="button" class="btn tiny gray" data-act="bdMove" data-id="${esc(b.id)}" data-dir="up" aria-label="한 칸 앞으로"${first ? ' disabled' : ''}>▲</button>
+    <button type="button" class="btn tiny gray" data-act="bdMove" data-id="${esc(b.id)}" data-dir="down" aria-label="한 칸 뒤로"${last ? ' disabled' : ''}>▼</button>
     <button type="button" class="btn tiny gray" data-act="bdEdit" data-id="${esc(b.id)}">이름·설명</button>
     <button type="button" class="btn tiny gray" data-act="bdLayout" data-id="${esc(b.id)}">${b.layout === 'free' ? '줄 맞춤으로 바꾸기' : '자유 배치로 바꾸기'}</button>
     <button type="button" class="btn tiny gray" data-act="bdTog" data-id="${esc(b.id)}" data-k="active">${b.active ? '숨기기' : '보이기'}</button>
     <button type="button" class="btn tiny gray" data-act="bdTog" data-id="${esc(b.id)}" data-k="comments">댓글 ${b.comments ? '끄기' : '켜기'}</button>
     <button type="button" class="btn tiny gray" data-act="bdTog" data-id="${esc(b.id)}" data-k="likes">추천 ${b.likes ? '끄기' : '켜기'}</button>
-    <button type="button" class="btn tiny red" data-act="bdDel" data-id="${esc(b.id)}">삭제</button></div></div>`).join('');
+    <button type="button" class="btn tiny red" data-act="bdDel" data-id="${esc(b.id)}">삭제</button></div></div>`; }).join('');
   return `<section class="tpanel" aria-label="교사 모드"><span class="lbl">교사 모드</span><h2>보드 관리</h2>
-    <p class="note">보드를 열어 글·댓글 옆의 삭제 버튼으로 정리할 수 있어요. 학생 글은 학생이 직접 고치거나 지워요.</p>
+    <p class="note">여기 보이는 순서대로 학생 화면에도 나와요. “맨 앞으로 · ▲ · ▼”로 순서를 바꾸고, “📌 맨 위 고정”을 누르면 그 보드가 항상 맨 앞에 와요. 보드를 열어 글·댓글 옆의 삭제 버튼으로 정리할 수 있어요. 학생 글은 학생이 직접 고치거나 지워요.</p>
     ${rows || '<p class="note">아직 보드가 없어요.</p>'}
     <h3 style="margin-top:20px">새 보드 만들기</h3><div class="form">
     <div class="field"><label for="bdName">보드 이름</label><input id="bdName" type="text" maxlength="30" placeholder="자유 게시판"></div>
@@ -1770,6 +1775,7 @@ const BOARD_ACT = {
   },
   bArrangeGo: () => boardDo('정리하는 중이에요', `/api/admin/board/${st.boardId}/arrange`, {}, reloadPosts),
   bdLayout: (d) => { const b = st.board.boards.find((x) => x.id === d.id); boardDo('바꾸는 중이에요', `/api/admin/board/${d.id}`, { layout: b.layout === 'free' ? 'grid' : 'free' }, afterBoards); },
+  bdMove: async (d) => { const r = await run('순서를 바꾸는 중이에요', () => api('/api/admin/boards/reorder', { method: 'POST', body: { id: d.id, dir: d.dir } })); if (r) { toast(r.message); await afterBoards(); } },
   bdTog: (d) => { const b = st.board.boards.find((x) => x.id === d.id); boardDo('저장하는 중이에요', `/api/admin/board/${d.id}`, { [d.k]: !b[d.k] }, afterBoards); },
   bdDel: (d) => {
     const b = st.board.boards.find((x) => x.id === d.id);
@@ -1814,11 +1820,12 @@ function approvalsPanel() {
   if (a.done.length) h += `<details style="margin-top:20px"><summary style="cursor:pointer;font-weight:700">최근 처리한 신청</summary>` + a.done.map((p) => `<div class="mrow"><div class="t"><span class="badge gray">${esc(p.status)}</span> ${esc(p.type)} · <b>${esc(p.student)}</b> ${fmt(p.amount)}<i>${esc(p.requester)} · ${esc(p.reason)}</i></div></div>`).join('') + `</details>`;
   return h;
 }
-const SUBS_ETC = [['jobs', '직업 변경·추가'], ['seats', '자리 확인'], ['submit', '과제 즉시 체크'], ['assign', '과제 만들기·관리'], ['privacy', '개인정보']];
+const SUBS_ETC = [['jobs', '직업 변경·추가'], ['submit', '과제 즉시 체크'], ['privacy', '개인정보']]; // 자리·과제 관리는 직업 활동 교사 모드(국토교통부 장관·통계청 공무원)로 합쳤어요
 function etcPanel() {
   const k = st.sub.etc;
-  const inner = k === 'jobs' ? jobsEditorHtml() : k === 'seats' ? seatsHtml() : k === 'assign' ? asgPanelHtml(true) : k === 'privacy' ? privacyPanelHtml() : submitHtml(true);
-  return `${subSegs('etc', SUBS_ETC)}${inner}`;
+  const inner = k === 'submit' ? submitHtml(true) : k === 'privacy' ? privacyPanelHtml() : jobsEditorHtml();
+  const moved = `<p class="note">자리 관리와 과제 만들기·관리는 <b>직업 활동 → 교사 모드</b>에서 국토교통부 장관·통계청 공무원을 누르면 나와요. <button type="button" class="btn tiny gray" data-act="goWorkTm">직업 활동 열기</button></p>`;
+  return `${subSegs('etc', SUBS_ETC)}${moved}${inner}`;
 }
 /* ---- 개인정보 ---- */
 function privacyPanelHtml() {
@@ -2073,6 +2080,7 @@ function creditHtml() {
 const WORK_ACT = {
   wjOpen: (d) => { st.wj = d.id; st.forms.fine = null; renderWork(); },
   wjBack: () => { st.wj = ''; renderWork(); },
+  goWorkTm: () => { st.tm.work = true; st.wj = ''; goTab('work'); renderWork(); },
   jumpTm: (d) => { st.tm[d.id] = true; goTab(d.id); if (d.id === 'bank') renderBank(); else renderShop(); },
   /* 승인 */
   apOk: async (d) => {
