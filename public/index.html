@@ -781,7 +781,7 @@ function bankTeacherPanel() {
    직업소
 ==================================================================== */
 async function loadJobs() {
-  if (isTeacher() && !st.asId) return;
+  if (isTeacher() && !st.asId) { renderJobs(); return; } // 미리보기 학생이 없어도 교사 모드 배정표는 새로 그려요
   try { st.jobs = await api('/api/jobs' + asQ()); } catch (e) { toast(e.message, true); }
   renderJobs();
 }
@@ -816,7 +816,8 @@ function jobsTeacherPanel() {
     `</tbody></table></div><div style="margin-top:16px"><button class="btn tiny red" data-act="jobsClear">모든 직업 비우기</button></div></section>`;
 }
 function assignModal(jobId) {
-  const a = st.adm.assign, j = a.jobs.find((x) => x.id === jobId); if (!j) return;
+  const a = st.adm.assign; if (!a) { loadAssign(); toast('배정표를 새로 불러오는 중이에요. 잠시 뒤 다시 눌러 주세요'); return; }
+  const j = a.jobs.find((x) => x.id === jobId); if (!j) return;
   if (!st.forms.assignJob || st.forms.assignJob !== jobId) { st.forms.assignJob = jobId; st.forms.assignSel = new Set(j.assigned); }
   const sel = st.forms.assignSel;
   const chips = a.students.map((s) => {
