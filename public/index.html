@@ -167,6 +167,10 @@ button.stat { cursor: pointer; }
 .subc .ox button { flex: 1; border: 0; border-radius: 10px; padding: 10px 4px; font-weight: 700; font-size: 13px; cursor: pointer; background: #F2F4F6; color: var(--sub); font-family: inherit; }
 .subc .ox .o.on { background: #00B26B; color: #fff; } .subc .ox .x.on { background: var(--red); color: #fff; }
 .leaf.out { position: absolute; top: 0; left: 0; right: 0; }
+.jobgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.jobbox { min-height: 72px; padding: 12px; border-radius: 18px; border: 1.5px solid var(--line); background: #F9FAFB; font-family: inherit; font-size: 15px; font-weight: 700; color: var(--ink); cursor: pointer; word-break: keep-all; }
+.jobbox:hover:not(:disabled) { border-color: var(--blue); background: var(--blue-s); }
+.jobbox:disabled { opacity: .4; cursor: default; }
 .tool { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 22px; }
 .tasks { margin: 6px 0 0; padding-left: 20px; line-height: 1.9; font-size: 15px; }
 .chipbtn.bad { background: #FFF0F1; border-color: var(--red); color: var(--red); font-weight: 700; }
@@ -348,7 +352,9 @@ const $ = (s, r) => (r || document).querySelector(s);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (n) => Number(n || 0).toLocaleString('ko-KR');
 const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-const val = (id) => { const e = document.getElementById(id); return e ? e.value : ''; };
+// 같은 도구가 두 배너(예: 기타·직업 활동)에 동시에 그려질 수 있어서, 창(모달) → 지금 보는 탭 → 문서 전체 순서로 찾아요
+const elById = (id) => { const q = '#' + (window.CSS && CSS.escape ? CSS.escape(id) : id); return document.querySelector('#sheet ' + q) || document.querySelector(`#lf-${st.tab} ${q}`) || document.getElementById(id); };
+const val = (id) => { const e = elById(id); return e ? e.value : ''; };
 
 const TABS = [
   { id: 'info', label: '기본정보', bg: '#FFE99A' },
@@ -364,7 +370,7 @@ const tabsNow = () => TABS.filter((t) => !t.teacher || isTeacher());
 const st = {
   token: null, role: null, perms: [], myId: '', myName: '', asId: '',
   tab: 'info', info: null, history: null, shop: null, shopTab: '세금', groups: null, bank: null, jobs: null,
-  board: null, boardId: '', posts: null, tm: { info: false, shop: false, bank: false, jobs: false, board: false }, sub: { info: 'approvals', shop: 'items', etc: 'jobs' }, w: {},
+  board: null, boardId: '', posts: null, tm: { info: false, shop: false, bank: false, jobs: false, board: false, work: false }, sub: { info: 'approvals', shop: 'items', etc: 'jobs' }, w: {},
   adm: { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null, approvals: null, jobs: null },
   sel: new Set(), forms: {},
 };
@@ -501,7 +507,7 @@ function logout() {
   try { if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect(); } catch (e) {}
   st.token = null; saveToken(); st.role = null; st.realty = null; st.info = null; st.shop = null; st.groups = null; st.history = null; st.bank = null; st.jobs = null;
   st.adm = { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null, approvals: null, jobs: null }; st.w = {};
-  st.tm = { info: false, shop: false, bank: false, jobs: false, board: false }; st.tab = 'info'; st.board = null; st.boardId = ''; st.posts = null; renderBoardFull();
+  st.wj = ''; st.tjobs = null; st.tm = { info: false, shop: false, bank: false, jobs: false, board: false, work: false }; st.tab = 'info'; st.board = null; st.boardId = ''; st.posts = null; renderBoardFull();
   closeModal(); $('#app').hidden = true; $('#login').hidden = false; $('#lpin').value = '';
 }
 $('#logout').onclick = logout;
@@ -1153,7 +1159,7 @@ const ACT = {
   reload: () => { st.realty = null; st.board = null; if (st.tab === 'board') loadBoards(); st.shop = null; st.groups = null; st.bank = null; loadInfo(); if (st.tab === 'shop') loadShop(); if (st.tab === 'bank') loadBank(); toast('새로 불러왔어요'); },
   tm: (d) => {
     st.tm[d.id] = !st.tm[d.id];
-    if (d.id === 'info') renderInfo(); else if (d.id === 'bank') renderBank(); else if (d.id === 'jobs') renderJobs(); else if (d.id === 'board') renderBoard(); else renderShop();
+    if (d.id === 'info') renderInfo(); else if (d.id === 'bank') renderBank(); else if (d.id === 'jobs') renderJobs(); else if (d.id === 'board') renderBoard(); else if (d.id === 'work') renderWork(); else renderShop();
   },
   sub: (d) => {
     st.sub[d.key] = d.id;
@@ -1859,7 +1865,7 @@ function taskList(title, list) {
 function renderWork() {
   const el = $('#lf-work'); if (!el) return;
   st.workStale = false;
-  let body = leafHead('직업 활동', '맡은 일을<br>해 볼 시간이에요', 'work', false);
+  let body = leafHead('직업 활동', '맡은 일을<br>해 볼 시간이에요', 'work', isTeacher());
   const i = st.w.info;
   if (isTeacher() && !st.asId) body += '<div class="empty">미리 볼 학생이 없어요.</div>';
   else if (!i) body += '<div class="empty">불러오는 중이에요…</div>';
@@ -1881,28 +1887,64 @@ function renderWork() {
     if (P.includes('상점관리')) jump.push(['shop', '상점 관리 열기']);
     if (jump.length) body += tool('내 직업 권한', `<p class="note">은행·상점 관리는 해당 배너의 교사 모드 버튼에서 해요.</p><div class="row-btn">${jump.map(([k, l]) => `<button type="button" class="btn small gray" data-act="jumpTm" data-id="${k}">${l}</button>`).join('')}</div>`);
   }
+  if (st.tm.work && isTeacher()) body += workTeacherPanel();
   el.innerHTML = body; applyTm(el, 'work');
+}
+/* ---- 교사 모드: 학생을 고르지 않고 직업을 눌러 그 직업의 기능을 직접 써요 ---- */
+const WORK_TOOL_PERMS = ['벌금', '자리관리', '국고관리', '제출승인', '신용관리', '은행관리', '상점관리'];
+async function loadTJobs() {
+  if (st.tjobsBusy) return; st.tjobsBusy = true;
+  try { st.tjobs = await api('/api/work/joblist'); } catch (e) { toast(e.message, true); st.tjobs = []; }
+  st.tjobsBusy = false; renderWork();
+}
+function workTeacherPanel() {
+  const wrap = (inner) => `<section class="tpanel" aria-label="교사 모드"><span class="lbl">교사 모드</span>${inner}</section>`;
+  const list = st.tjobs;
+  if (!list) { loadTJobs(); return wrap('<p class="note">불러오는 중…</p>'); }
+  const j = list.find((x) => x.id === st.wj);
+  if (!j) {
+    return wrap(`<h2>직업 기능 바로 쓰기</h2><p class="note">직업을 누르면 그 직업의 기능을 선생님이 바로 쓸 수 있어요. 흐린 직업은 따로 쓸 기능이 없어요.</p><div class="jobgrid">` +
+      list.map((x) => { const on = x.perms.some((p) => WORK_TOOL_PERMS.includes(p)); return `<button type="button" class="jobbox" data-act="wjOpen" data-id="${esc(x.id)}"${on ? '' : ' disabled'}>${esc(x.name)}</button>`; }).join('') + `</div>`);
+  }
+  const P = j.perms;
+  const tool = (title, inner) => `<section class="tool"><h2>${title}</h2>${inner}</section>`;
+  let body = `<div class="row-btn" style="margin:0 0 4px;align-items:center"><button type="button" class="btn small gray" data-act="wjBack">← 직업 목록으로</button><h2 style="margin:0">${esc(j.name)}</h2></div>`;
+  if (P.includes('벌금')) body += tool('벌금 매기기', finesHtml(true));
+  if (P.includes('자리관리')) body += tool('자리 관리', seatsHtml());
+  if (P.includes('국고관리')) body += tool('국고 현황', treasuryWorkHtml());
+  if (P.includes('제출승인')) body += tool('과제 체크', asgPanelHtml(true));
+  if (P.includes('신용관리')) body += tool('신용등급 현황', creditHtml());
+  const jump = [];
+  if (P.includes('은행관리')) jump.push(['bank', '은행 관리 열기']);
+  if (P.includes('상점관리')) jump.push(['shop', '상점 관리 열기']);
+  if (jump.length) body += tool('은행·상점 관리', `<p class="note">누르면 해당 배너의 교사 모드가 열려요.</p><div class="row-btn">${jump.map(([k, l]) => `<button type="button" class="btn small gray" data-act="jumpTm" data-id="${k}">${l}</button>`).join('')}</div>`);
+  return wrap(body);
 }
 const noteIf = (cond, msg) => (cond ? `<p class="note">${msg}</p>` : '');
 /* ---- 벌금 ---- */
+async function loadFinesT() {
+  if (st.w.finesTBusy) return; st.w.finesTBusy = true;
+  try { st.w.finesT = await api('/api/work/fines'); } catch (e) { toast(e.message, true); st.w.finesT = { items: [], students: [], currency: '', max: 0, daily: 0 }; }
+  st.w.finesTBusy = false; renderWork();
+}
 async function loadFines() {
   try { [st.w.fines, st.w.fineLog] = await Promise.all([api('/api/work/fines'), api('/api/work/mine?type=' + encodeURIComponent('벌금'))]); } catch (e) { st.w.fines = null; st.w.fineLog = []; if (isTeacher()) st.w.finesErr = '선생님은 학생 화면에서 벌금을 신청할 수 없어요'; else toast(e.message, true); }
   renderWork();
 }
-function finesHtml() {
-  if (isTeacher()) return '<p class="note">미리보기 중에는 벌금을 신청할 수 없어요. 학생 계정으로 로그인하면 쓸 수 있어요.</p>';
-  const f = st.w.fines;
-  if (!f) { loadFines(); return '<p class="note">불러오는 중…</p>'; }
+function finesHtml(direct) {
+  if (isTeacher() && !direct) return '<p class="note">미리보기 중에는 벌금을 신청할 수 없어요. 교사 모드를 켜고 경찰을 누르면 선생님이 바로 매길 수 있어요.</p>';
+  const f = direct ? st.w.finesT : st.w.fines;
+  if (!f) { if (direct) loadFinesT(); else loadFines(); return '<p class="note">불러오는 중…</p>'; }
   const fm = st.forms.fine = st.forms.fine || { item: 'late', targets: new Set() };
-  const it = f.items.find((x) => x.id === fm.item);
-  return `<p class="note">벌금은 선생님이 승인하면 반영돼요. 하루 ${f.daily}번까지 신청할 수 있고, 한 사람에게 ${fmt(f.max)}까지예요.</p>
+  const it = f.items.find((x) => x.id === fm.item); if (!it) return '<p class="note">벌금 항목을 불러오지 못했어요. 새로고침해 주세요.</p>';
+  return `<p class="note">${direct ? '선생님이 매기는 벌금은 승인 없이 바로 빠져나가 국고로 들어가요.' : `벌금은 선생님이 승인하면 반영돼요. 하루 ${f.daily}번까지 신청할 수 있고, 한 사람에게 ${fmt(f.max)}까지예요.`}</p>
     <div class="chips">${f.items.map((x) => `<button type="button" class="chipbtn ${fm.item === x.id ? 'sel' : ''}" data-act="fineItem" data-id="${x.id}">${esc(x.name)}${x.amount !== null ? ' ' + fmt(x.amount) + esc(f.currency) : ''}</button>`).join('')}</div>
     ${it.amount === null ? `<div class="form"><div class="field"><label for="fnAmt">금액 (${esc(f.currency)})</label><input id="fnAmt" type="number" inputmode="numeric" value="${fm.amount || ''}"></div></div>` : ''}
     <div class="form"><div class="field"><label for="fnNote">무슨 일이었나요? (선택)</label><input id="fnNote" maxlength="100" value="${esc(fm.note || '')}"></div></div>
     <p class="note" style="margin-bottom:6px">벌금을 매길 친구 (${fm.targets.size}명 선택)</p>
     <div class="chips">${f.students.map((s) => `<button type="button" class="chipbtn ${fm.targets.has(s.id) ? 'sel' : ''}" data-act="fineTog" data-id="${esc(s.id)}">${esc(s.name)}</button>`).join('')}</div>
-    <button type="button" class="btn" data-act="fineGo">선생님께 신청하기</button>` +
-    ((st.w.fineLog || []).length ? `<h3 style="margin-top:20px">내가 신청한 벌금</h3>` + st.w.fineLog.map((x) => `<div class="mrow"><div class="t"><b>${esc(x.student)}</b> ${fmt(x.amount)}<i>${esc(x.at)} · ${esc(x.reason)}</i></div><span class="badge ${x.status === '승인' ? 'green' : x.status === '대기' ? '' : 'gray'}">${esc(x.status)}</span></div>`).join('') : '');
+    <button type="button" class="btn" data-act="fineGo">${direct ? '바로 부과하기' : '선생님께 신청하기'}</button>` +
+    (!direct && (st.w.fineLog || []).length ? `<h3 style="margin-top:20px">내가 신청한 벌금</h3>` + st.w.fineLog.map((x) => `<div class="mrow"><div class="t"><b>${esc(x.student)}</b> ${fmt(x.amount)}<i>${esc(x.at)} · ${esc(x.reason)}</i></div><span class="badge ${x.status === '승인' ? 'green' : x.status === '대기' ? '' : 'gray'}">${esc(x.status)}</span></div>`).join('') : '');
 }
 /* ---- 한 일 보고 (아르바이트 등) ---- */
 async function loadReports() { try { st.w.reports = await api('/api/work/mine?type=' + encodeURIComponent('알바수당')); } catch (e) { st.w.reports = []; } renderWork(); }
@@ -2029,6 +2071,8 @@ function creditHtml() {
 }
 
 const WORK_ACT = {
+  wjOpen: (d) => { st.wj = d.id; st.forms.fine = null; renderWork(); },
+  wjBack: () => { st.wj = ''; renderWork(); },
   jumpTm: (d) => { st.tm[d.id] = true; goTab(d.id); if (d.id === 'bank') renderBank(); else renderShop(); },
   /* 승인 */
   apOk: async (d) => {
@@ -2050,15 +2094,22 @@ const WORK_ACT = {
     const body = { id: d.id || undefined, name: val('jbName'), salary: val('jbSal'), capacity: val('jbCap'), minCredit: val('jbCr'), minMath: val('jbMa'), source: val('jbSrc'), desc: val('jbDesc'),
       perms: [...document.querySelectorAll('.jbPerm:checked')].map((x) => x.value), reportable: document.getElementById('jbRep').checked, daily: val('jbDaily'), periodic: val('jbPer') };
     const r = await run('저장하는 중이에요', () => api('/api/admin/jobs/save', { method: 'POST', body }));
-    if (r) { closeModal(); toast(r.message); st.jobs = null; st.adm.assign = null; st.w.info = null; loadAdmJobs(); loadAdmStudents(false); }
+    if (r) { closeModal(); toast(r.message); st.jobs = null; st.tjobs = null; st.adm.assign = null; st.w.info = null; loadAdmJobs(); loadAdmStudents(false); }
   },
   jobDel: (d) => openModal(`<h3>이 직업을 지울까요?</h3><p>이 직업을 가진 친구는 직업이 비게 돼요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="jobDelGo" data-id="${esc(d.id)}">지우기</button></div>`),
-  jobDelGo: async (d) => { const r = await run('지우는 중이에요', () => api(`/api/admin/jobs/${d.id}/delete`, { method: 'POST', body: {} })); if (r) { closeModal(); toast(r.message); st.jobs = null; st.adm.assign = null; loadAdmJobs(); loadAdmStudents(false); } },
+  jobDelGo: async (d) => { const r = await run('지우는 중이에요', () => api(`/api/admin/jobs/${d.id}/delete`, { method: 'POST', body: {} })); if (r) { closeModal(); toast(r.message); st.jobs = null; st.tjobs = null; st.wj = ''; st.adm.assign = null; loadAdmJobs(); loadAdmStudents(false); } },
   /* 벌금 */
   fineItem: (d) => { const fm = st.forms.fine; fm.amount = val('fnAmt') || fm.amount; fm.note = val('fnNote'); fm.item = d.id; renderWork(); },
   fineTog: (d) => { const fm = st.forms.fine; fm.amount = val('fnAmt') || fm.amount; fm.note = val('fnNote'); fm.targets.has(d.id) ? fm.targets.delete(d.id) : fm.targets.add(d.id); renderWork(); },
   fineGo: async () => {
     const fm = st.forms.fine;
+    if (isTeacher()) {
+      if (!fm.targets.size) return toast('벌금을 매길 친구를 골라 주세요', true);
+      fm.batch = fm.batch || uid('TF');
+      const rt = await run('부과하는 중이에요', () => api('/api/work/fines', { method: 'POST', body: { targets: [...fm.targets], itemId: fm.item, amount: val('fnAmt'), note: val('fnNote'), batchId: fm.batch } }));
+      if (rt) { toast(rt.message); st.forms.fine = { item: 'late', targets: new Set() }; await afterMoney(); }
+      return;
+    }
     const r = await run('신청하는 중이에요', () => api('/api/work/fines', { method: 'POST', body: { targets: [...fm.targets], itemId: fm.item, amount: val('fnAmt'), note: val('fnNote') } }));
     if (r) { toast(r.message); st.forms.fine = { item: 'late', targets: new Set() }; loadFines(); }
   },
@@ -2096,7 +2147,7 @@ const WORK_ACT = {
   asgBack: () => { st.w.asgBoardId = ''; st.w.asgBoard = null; st.w.asgList = null; asgRender(); },
   asgReload: () => { st.w.asgList = null; asgRender(); },
   asgBoardReload: () => loadAsgBoard(st.w.asgBoardId),
-  asgNew: async () => { const r = await run('내는 중이에요', () => api('/api/admin/assignments', { method: 'POST', body: { title: val('asgTitle'), desc: val('asgDesc'), penalty: !!(document.getElementById('asgPen') && document.getElementById('asgPen').checked) } })); if (r) { toast(r.message); st.w.asgList = null; asgRender(); } },
+  asgNew: async () => { const r = await run('내는 중이에요', () => api('/api/admin/assignments', { method: 'POST', body: { title: val('asgTitle'), desc: val('asgDesc'), penalty: !!(elById('asgPen') && elById('asgPen').checked) } })); if (r) { toast(r.message); st.w.asgList = null; asgRender(); } },
   asgMark: async (d) => {
     const v = st.w.asgBoard, cur_ = v.status[d.id] || '', next = cur_ === d.s ? '' : d.s;
     if (next) v.status[d.id] = next; else delete v.status[d.id];
@@ -2118,7 +2169,7 @@ const WORK_ACT = {
   subSet: async (d) => {
     const cur_ = st.w.submit.status[d.id] || '', next = cur_ === d.s ? '' : d.s;
     if (next) st.w.submit.status[d.id] = next; else delete st.w.submit.status[d.id];
-    const it = document.getElementById('subItem'); const item = it ? it.value : st.w.submit.item; st.w.submit.item = item;
+    const it = elById('subItem'); const item = it ? it.value : st.w.submit.item; st.w.submit.item = item;
     st.w.subBusy = (st.w.subBusy || 0) + 1;
     if (st.tab === 'work') renderWork(); renderInfo();
     try { const r = await api('/api/work/submit/check', { method: 'POST', body: { studentId: d.id, status: next, item } }); if (st.w.subBusy === 1) st.w.submit = r; }

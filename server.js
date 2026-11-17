@@ -2081,13 +2081,31 @@ app.get('/api/work/mine', auth, studentOnly, wrap(async (req, res) => {
 
 // ---------- 경찰: 벌금 ----------
 const fineItems = (S) => [{ id: 'late', name: '지각', amount: Number(S.지각벌금) }, { id: 'curse', name: '욕설', amount: null }, { id: 'other', name: '기타', amount: null }];
-app.get('/api/work/fines', studentGuard('벌금'), wrap(async (req, res) => {
+// 직업 활동 교사 모드에 쓸 직업 목록 (서버가 기억한 직업만 써서 Firestore를 읽지 않아요)
+app.get('/api/work/joblist', guard('teacher'), wrap(async (req, res) => {
+  res.json(Object.values(await getJobs()).sort((a, b) => (a.order || 0) - (b.order || 0)).map((j) => ({ id: j.id, name: j.name, perms: j.perms || [] })));
+}));
+app.get('/api/work/fines', guard('벌금'), wrap(async (req, res) => {
   const S = await getSettings();
   const names = await studentNames();
   res.json({ items: fineItems(S), max: Number(S.벌금최대금액), daily: Number(S.일일벌금건수), currency: S.화폐단위, students: Object.keys(names).sort((a, b) => Number(a) - Number(b)).filter((id) => id !== req.user.id).map((id) => ({ id, name: names[id] })) });
 }));
-app.post('/api/work/fines', studentGuard('벌금'), wrap(async (req, res) => {
+app.post('/api/work/fines', guard('벌금'), wrap(async (req, res) => {
   const S = await getSettings();
+  if (req.user.role === 'teacher') { // 선생님이 직접 매기면 승인 없이 바로 부과해요 (벌금 → 국고)
+    const names = await studentNames();
+    const targets = uniqIds(req.body.targets).filter((id) => names[id]);
+    if (!targets.length) throw new UserError('벌금을 매길 친구를 골라 주세요');
+    const item = fineItems(S).find((f) => f.id === req.body.itemId);
+    if (!item) throw new UserError('없는 벌금 항목이에요');
+    const amount = item.amount === null ? toInt(req.body.amount, '금액을 올바르게 넣어 주세요') : item.amount;
+    if (amount <= 0) throw new UserError('금액을 올바르게 넣어 주세요');
+    const note = String(req.body.note || '').trim().slice(0, 100), reason = item.name + (note ? ' — ' + note : '');
+    const r = await runBatch(String(req.body.batchId || newId('TF')),
+      targets.map((id) => ({ studentId: id, kind: '벌금', amount: -amount, reason, by: '관리자', allowNegative: S.빚허용 === 'Y', failMsg: `${names[id]} 학생의 행복이 모자라요` })),
+      targets.map((id) => ({ kind: '벌금', amount, reason, studentId: id, by: '관리자' })));
+    return okMsg(res, r.duplicate ? '이미 반영된 건이에요' : `${targets.length}명에게 벌금 ${amount.toLocaleString()}을 부과했어요`);
+  }
   const me = req.user.id, today = dayStr(new Date());
   const names = await studentNames();
   const targets = uniqIds(req.body.targets).filter((id) => id !== me && names[id]);
