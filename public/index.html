@@ -499,7 +499,7 @@ const TEACHER_GREETING = '선생님, 안녕하세요<br>오늘도 행복하세�
 function logout() {
   // 나가기를 눌렀는데 곧바로 다시 자동 로그인되지 않게 해요
   try { if (window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect(); } catch (e) {}
-  st.token = null; saveToken(); st.role = null; st.info = null; st.shop = null; st.groups = null; st.history = null; st.bank = null; st.jobs = null;
+  st.token = null; saveToken(); st.role = null; st.realty = null; st.info = null; st.shop = null; st.groups = null; st.history = null; st.bank = null; st.jobs = null;
   st.adm = { students: null, shop: null, groups: null, treasury: null, settings: null, bank: null, assign: null, approvals: null, jobs: null }; st.w = {};
   st.tm = { info: false, shop: false, bank: false, jobs: false, board: false }; st.tab = 'info'; st.board = null; st.boardId = ''; st.posts = null; renderBoardFull();
   closeModal(); $('#app').hidden = true; $('#login').hidden = false; $('#lpin').value = '';
@@ -569,7 +569,7 @@ function fillAsSel() {
     : '<option value="">학생 없음</option>';
 }
 $('#asSel').onchange = (e) => {
-  st.asId = e.target.value; st.info = null; st.history = null; st.shop = null; st.groups = null; st.bank = null; st.jobs = null; st.w = {};
+  st.asId = e.target.value; st.realty = null; st.info = null; st.history = null; st.shop = null; st.groups = null; st.bank = null; st.jobs = null; st.w = {};
   renderAll(); loadInfo();
   if (!st.asId) return;
   if (st.tab === 'shop') loadShop(); if (st.tab === 'bank') loadBank(); if (st.tab === 'jobs') loadJobs(); if (st.tab === 'work') loadWork();
@@ -849,7 +849,7 @@ const shopTeacherAllowed = () => can('상점관리') || can('국고관리') || i
 function renderShop() {
   const el = $('#lf-shop'); if (!el) return;
   let body = leafHead('상점', '필요한 건 골라서<br>똑똑하게 사요', 'shop', shopTeacherAllowed());
-  body += `<div class="segs">` + ['세금', '간식', '쿠폰', '공동구매'].map((c) => `<button type="button" class="seg ${st.shopTab === c ? 'on' : ''}" data-act="shopTab" data-id="${c}">${c}</button>`).join('') + `</div>`;
+  body += `<div class="segs">` + ['세금', '간식', '쿠폰', '공동구매', '부동산'].map((c) => `<button type="button" class="seg ${st.shopTab === c ? 'on' : ''}" data-act="shopTab" data-id="${c}">${c}</button>`).join('') + `</div>`;
   const s = st.shop;
   if (isTeacher() && !st.asId) body += '<div class="empty">미리 볼 학생이 없어요. 학생을 먼저 등록해 주세요.</div>';
   else if (!s) body += '<div class="empty">불러오는 중이에요…</div>';
@@ -860,6 +860,7 @@ function renderShop() {
       `<div class="stat" style="background:#F9FAFB"><small>이번 달 월세</small><b>${s.rentExempt ? '면제' : fmt((s.items.find((x) => x.isRent) || {}).price || 0)}</b></div></div>`;
     body += `<p class="note">세금은 매달 한 번씩 꼭 내야 해요.${s.balance < 0 && s.debtBlocks ? ' 빚이 있으면 간식·쿠폰은 살 수 없어요.' : ''}</p>`;
     if (st.shopTab === '공동구매') body += groupsHtml();
+    else if (st.shopTab === '부동산') body += realtyHtml();
     else body += itemsHtml(s);
   }
   if (st.tm.shop && shopTeacherAllowed()) body += shopTeacherPanel();
@@ -879,6 +880,30 @@ function itemsHtml(s) {
       (lim ? `<div class="st">${lim}</div>` : '') + `<div class="pr">${fmt(i.price)} ${esc(s.currency)}</div>` +
       `<button type="button" class="btn small ${i.blocked ? '' : 'sec'}" ${i.blocked ? 'disabled' : ''} data-act="buy" data-id="${esc(i.id)}">${label}</button></div>`;
   }).join('') + `</div>`;
+}
+/* 부동산: 자리 현황 (보기 전용). 자리를 사고파는 일은 국토교통부 장관이 맡아요 */
+async function loadRealty() {
+  try { st.realty = await api('/api/realty' + asQ()); } catch (e) { toast(e.message, true); st.realty = { seats: [], rows: 0, cols: 0, aisle: [], rent: 0 }; }
+  renderShop();
+}
+function realtyHtml() {
+  const v = st.realty;
+  if (!v) { loadRealty(); return '<div class="empty">불러오는 중이에요…</div>'; }
+  if (!v.seats.length) return '<div class="empty">아직 자리가 만들어지지 않았어요.</div>';
+  const map = {}; v.seats.forEach((x) => (map[x.row + '-' + x.col] = x));
+  let rows = '';
+  for (let r = 1; r <= v.rows; r++) {
+    let cells = '';
+    for (let c = 1; c <= v.cols; c++) {
+      const x = map[r + '-' + c];
+      cells += x ? `<div class="seat ${x.paid ? 'paid' : x.name ? 'taken' : ''}" style="cursor:default;${x.mine ? 'outline:3px solid var(--blue);outline-offset:1px' : ''}"><small>${r}-${c}${x.mine ? ' · 내 자리' : ''}</small><b>${esc(x.name || '빈 자리')}</b><i>${fmt(x.price)}${x.paid ? ' · 구매 완료' : ''}</i></div>` : '<div class="seat none"></div>';
+      if (v.aisle.includes(c) && c < v.cols) cells += '<div class="aisle"></div>';
+    }
+    rows += `<div class="srow">${cells}</div>`;
+  }
+  const empty = v.seats.filter((x) => !x.name).length, paid = v.seats.filter((x) => x.paid).length;
+  return `<p class="note">우리 반 자리 현황이에요. 자리를 사면 월세(${fmt(v.rent)})가 면제돼요. 자리를 사고 싶으면 <b>국토교통부 장관</b>에게 이야기해요. <span class="badge gray">회색</span> 빈 자리 ${empty}칸 · <span class="badge">파랑</span> 앉은 자리 · <span class="badge green">초록</span> 구매 완료 ${paid}칸</p>
+    <div class="blackboard">칠판</div><div class="sgrid">${rows}</div>`;
 }
 function groupsHtml() {
   const g = st.groups;
@@ -1113,7 +1138,7 @@ function groupsAdmin() {
    클릭 처리 (한 곳에서)
 ==================================================================== */
 async function afterMoney() { // 돈이 움직인 뒤 화면 새로 불러오기
-  st.w.seats = null; st.w.credit = null;
+  st.w.seats = null; st.w.credit = null; st.realty = null;
   st.shop = null; st.groups = null; st.bank = null; st.jobs = null; st.adm.assign = null; st.adm.groups = null; st.adm.shop = null; st.adm.treasury = null; st.adm.bank = null;
   if (isTeacher()) await loadAdmStudents(false);
   await Promise.all([loadInfo(), st.tab === 'bank' ? loadBank() : null, st.tab === 'shop' ? loadShop() : null, st.tab === 'shop' && st.shopTab === '공동구매' ? loadGroups() : null]);
@@ -1125,7 +1150,7 @@ function fieldsOf(tr) { const o = {}; tr.querySelectorAll('[data-f]').forEach((e
 const ACT = {
   tab: (d) => goTab(d.id),
   close: () => closeModal(),
-  reload: () => { st.board = null; if (st.tab === 'board') loadBoards(); st.shop = null; st.groups = null; st.bank = null; loadInfo(); if (st.tab === 'shop') loadShop(); if (st.tab === 'bank') loadBank(); toast('새로 불러왔어요'); },
+  reload: () => { st.realty = null; st.board = null; if (st.tab === 'board') loadBoards(); st.shop = null; st.groups = null; st.bank = null; loadInfo(); if (st.tab === 'shop') loadShop(); if (st.tab === 'bank') loadBank(); toast('새로 불러왔어요'); },
   tm: (d) => {
     st.tm[d.id] = !st.tm[d.id];
     if (d.id === 'info') renderInfo(); else if (d.id === 'bank') renderBank(); else if (d.id === 'jobs') renderJobs(); else if (d.id === 'board') renderBoard(); else renderShop();
@@ -1150,7 +1175,7 @@ const ACT = {
     if (r) { closeModal(); toast('비밀번호를 바꿨어요'); }
   },
   /* 상점 */
-  shopTab: (d) => { st.shopTab = d.id; renderShop(); if (d.id === '공동구매' && !st.groups) loadGroups(); },
+  shopTab: (d) => { st.shopTab = d.id; if (d.id === '부동산') st.realty = null; renderShop(); if (d.id === '공동구매' && !st.groups) loadGroups(); },
   buy: (d) => buyConfirm(d.id),
   buyGo: async (d) => {
     const tx = st.forms.tx;

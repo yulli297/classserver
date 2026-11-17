@@ -335,11 +335,13 @@ async function creditsByStudent() {
   return by;
 }
 const readCache = new Map();
+let realtyCache = { at: 0, value: null };
 app.use('/api', (req, res, next) => {
   if (req.method !== 'GET') {
     readCache.clear();
     res.on('finish', () => { // 저장이 끝난 뒤에도 한 번 더 비워서, 저장 중에 읽은 옛 값이 남지 않게 해요
       readCache.clear(); treasuryC.dirty(); creditC.dirty();
+      if (/seat|approval|student|import|reset|settings/.test(req.path)) realtyCache = { at: 0, value: null }; // 자리가 바뀔 수 있는 저장 뒤에는 부동산 현황을 새로 읽어요
       if (req.path === '/admin/import') { clearNames(); clearAllBoards(); treasuryC.clear(); creditC.clear(); }
     });
   }
@@ -2148,6 +2150,21 @@ async function seatsView() {
     students: Object.keys(studs).sort((a, b) => Number(a) - Number(b)).map((id) => ({ id, name: studs[id].name, seat: seated[id] ? seated[id] : '' })),
   };
 }
+// 부동산(자리 현황, 보기 전용): 모든 학생이 볼 수 있어요. 자리 칸만 읽고(이름은 서버가 기억한 명단 사용) 5분 기억해요.
+app.get('/api/realty', auth, wrap(async (req, res) => {
+  const me = targetId(req);
+  if (!(realtyCache.value && Date.now() - realtyCache.at < 5 * 60 * 1000)) {
+    const [S, seatSnap, names] = await Promise.all([getSettings(), db.collection('seats').get(), studentNames()]);
+    const seats = seatSnap.docs.map((d) => d.data()).sort((a, b) => a.row - b.row || a.col - b.col)
+      .map((x) => ({ row: x.row, col: x.col, price: x.price || 0, sid: x.studentId || '', name: x.studentId ? names[x.studentId] || '' : '', paid: !!x.paid }));
+    realtyCache = { at: Date.now(), value: {
+      currency: S.화폐단위, rent: Number(S.월세), aisle: String(S.통로위치).split(',').map(Number).filter((n) => n > 0), seats,
+      rows: Math.max(0, ...seats.map((x) => x.row)), cols: Math.max(0, ...seats.map((x) => x.col)),
+    } };
+  }
+  const v = realtyCache.value;
+  res.json({ ...v, seats: v.seats.map(({ sid, ...x }) => ({ ...x, mine: !!sid && sid === me })) });
+}));
 app.get('/api/work/seats', guard('자리관리'), wrap(async (req, res) => res.json(await seatsView())));
 app.post('/api/work/seats/init', guard('자리관리'), wrap(async (req, res) => {
   const rows = toInt(req.body.rows, '줄 수를 넣어 주세요'), cols = toInt(req.body.cols, '칸 수를 넣어 주세요'), price = Math.max(0, toInt(req.body.price || 0));
