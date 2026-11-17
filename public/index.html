@@ -606,7 +606,7 @@ function goTab(id, first) {
     if (id === 'bank' && !st.bank) loadBank();
     if (id === 'jobs' && !st.jobs) loadJobs();
     if (id === 'board' && !st.board) loadBoards();
-    if (id === 'work' && !st.w.info) loadWork();
+    if (id === 'work' && !st.w.info) loadWork(); else if (id === 'work' && st.workStale) renderWork();
     if (window.innerWidth <= 760) window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 }
@@ -712,7 +712,7 @@ function pinEdit() {
    은행 (예금)
 ==================================================================== */
 async function loadBank() {
-  if (isTeacher() && !st.asId) return;
+  if (isTeacher() && !st.asId) { renderBank(); return; }
   try { st.bank = await api('/api/bank' + asQ()); } catch (e) { toast(e.message, true); }
   renderBank();
 }
@@ -835,7 +835,7 @@ function assignModal(jobId) {
    2. 상점
 ==================================================================== */
 async function loadShop() {
-  if (isTeacher() && !st.asId) return;
+  if (isTeacher() && !st.asId) { renderShop(); return; }
   try { st.shop = await api('/api/shop' + asQ()); } catch (e) { toast(e.message, true); }
   renderShop();
 }
@@ -1115,8 +1115,10 @@ function groupsAdmin() {
 async function afterMoney() { // 돈이 움직인 뒤 화면 새로 불러오기
   st.w.seats = null; st.w.credit = null;
   st.shop = null; st.groups = null; st.bank = null; st.jobs = null; st.adm.assign = null; st.adm.groups = null; st.adm.shop = null; st.adm.treasury = null; st.adm.bank = null;
+  if (isTeacher()) await loadAdmStudents(false);
   await Promise.all([loadInfo(), st.tab === 'bank' ? loadBank() : null, st.tab === 'shop' ? loadShop() : null, st.tab === 'shop' && st.shopTab === '공동구매' ? loadGroups() : null]);
-  if (isTeacher()) loadAdmStudents(false).then(() => { fillAsSel(); });
+  if (st.tab === 'jobs') renderJobs();
+  if (st.tab === 'work') renderWork(); else st.workStale = true; // 직업 활동의 자리·신용 표는 다음에 열 때 새로 그려요
 }
 function fieldsOf(tr) { const o = {}; tr.querySelectorAll('[data-f]').forEach((e) => (o[e.dataset.f] = e.type === 'checkbox' ? e.checked : e.value)); return o; }
 
@@ -1202,12 +1204,12 @@ const ACT = {
   },
   assignSave: async (d) => {
     const r = await run('저장하는 중이에요', () => api(`/api/admin/jobs/${d.id}/assign`, { method: 'POST', body: { ids: [...st.forms.assignSel] } }));
-    if (r) { closeModal(); toast(r.message); st.forms.assignJob = null; st.adm.assign = null; st.jobs = null; st.w = {}; await loadAdmStudents(false); loadJobs(); loadInfo(); }
+    if (r) { closeModal(); toast(r.message); st.forms.assignJob = null; st.adm.assign = null; st.jobs = null; st.w.info = null; await loadAdmStudents(false); loadJobs(); loadInfo(); if (st.tab === 'work') loadWork(); }
   },
   jobsClear: () => openModal(`<h3>모든 직업을 비울까요?</h3><p>모든 학생의 직업이 없어져요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="jobsClearGo">비우기</button></div>`),
   jobsClearGo: async () => {
     const r = await run('처리 중이에요', () => api('/api/admin/jobs/clear', { method: 'POST', body: {} }));
-    closeModal(); if (r) { toast(r.message); st.adm.assign = null; st.jobs = null; st.w = {}; await loadAdmStudents(false); loadJobs(); loadInfo(); }
+    closeModal(); if (r) { toast(r.message); st.adm.assign = null; st.jobs = null; st.w.info = null; await loadAdmStudents(false); loadJobs(); loadInfo(); if (st.tab === 'work') loadWork(); }
   },
   /* 기본정보 교사 모드 */
   stuDel: (d) => {
@@ -1261,7 +1263,7 @@ const ACT = {
   mathBulkGo: async () => {
     const scores = val('mathBulk').split('\n').map((x) => x.trim());  // 빈 줄도 번호 자리라서 지우지 않아요
     const r = await run('저장하는 중이에요', () => api('/api/admin/students/mathbulk', { method: 'POST', body: { scores } }));
-    if (r) { toast(r.message); await loadAdmStudents(); st.info = null; loadInfo(); }
+    if (r) { toast(r.message); st.jobs = null; st.adm.assign = null; await loadAdmStudents(); st.info = null; loadInfo(); }
   },
   renameGo: async () => {
     const r = await run('고치는 중이에요', () => api(`/api/admin/students/${val('rnId')}/rename`, { method: 'POST', body: { name: val('rnName') } }));
@@ -1802,7 +1804,8 @@ function jobsEditorHtml() {
     a.jobs.map((j) => `<div class="mrow"><div class="t"><b>${esc(j.name)}</b> <small>월급 ${fmt(j.salary)} · 신용${j.minCredit}·수학${j.minMath} · 정원 ${j.count}/${j.capacity || '∞'}${j.perms.length ? ' · ' + esc(j.perms.join(', ')) : ''}</small><i>매일 ${j.daily.length}개 · 주기적 ${j.periodic.length}개</i></div><div class="acts"><button type="button" class="btn tiny gray" data-act="jobEdit" data-id="${esc(j.id)}">고치기</button></div></div>`).join('');
 }
 function jobModal(id) {
-  const a = st.adm.jobs, j = a.jobs.find((x) => x.id === id) || { id: '', name: '', salary: 0, minCredit: 5, minMath: 5, desc: '', perms: [], capacity: 1, source: '국고', daily: [], periodic: [], reportable: false };
+  const a = st.adm.jobs; if (!a) { renderInfo(); return; }
+  const j = a.jobs.find((x) => x.id === id) || { id: '', name: '', salary: 0, minCredit: 5, minMath: 5, desc: '', perms: [], capacity: 1, source: '국고', daily: [], periodic: [], reportable: false };
   openModal(`<h3>${j.id ? '직업 고치기' : '새 직업'}</h3><div class="form">
     <div class="field"><label for="jbName">직업 이름</label><input id="jbName" value="${esc(j.name)}"></div>
     <div class="field"><label for="jbSal">월급 (세전)</label><input id="jbSal" type="number" value="${j.salary}"></div>
@@ -1830,6 +1833,7 @@ function taskList(title, list) {
 }
 function renderWork() {
   const el = $('#lf-work'); if (!el) return;
+  st.workStale = false;
   let body = leafHead('직업 활동', '맡은 일을<br>해 볼 시간이에요', 'work', false);
   const i = st.w.info;
   if (isTeacher() && !st.asId) body += '<div class="empty">미리 볼 학생이 없어요.</div>';
@@ -1910,7 +1914,8 @@ function seatsHtml() {
     <div class="form"><div class="field"><label for="saRow">줄</label><input id="saRow" type="number"></div><div class="field"><label for="saCol">칸</label><input id="saCol" type="number"></div><div class="field"><label for="saPrice">가격</label><input id="saPrice" type="number" value="0"></div><button type="button" class="btn small sec" data-act="seatAdd">칸 추가</button></div>${isTeacher() ? '<div class="tool" style="margin-top:20px"><button type="button" class="btn red small" data-act="seatReset">자리 배치 모두 지우고 새로 만들기</button></div>' : ''}`;
 }
 function seatModal(id) {
-  const v = st.w.seats, s = v.seats.find((x) => x.id === id); if (!s) return;
+  const v = st.w.seats; if (!v) { renderWork(); renderInfo(); return; }
+  const s = v.seats.find((x) => x.id === id); if (!s) return;
   const opts = `<option value="">(비움)</option>` + v.students.map((x) => `<option value="${esc(x.id)}" ${s.studentId === x.id ? 'selected' : ''}>${esc(x.name)}${x.seat && x.seat !== s.id ? ' · ' + esc(x.seat.replace('P', '')) + ' 자리' : ''}</option>`).join('');
   openModal(`<h3>${s.row}줄 ${s.col}칸</h3>${s.paid ? '<p>이미 돈을 낸 자리예요. 가격과 앉은 친구를 바꿀 수 없어요.' + (isTeacher() ? ' 선생님은 아래에서 풀 수 있어요.' : ' 바꾸려면 선생님이 먼저 풀어야 해요.') + '</p>' : s.studentId ? `<p>${esc(s.name)}의 행복 ${fmt(s.balance)}${s.shortfall ? ` · <b style="color:var(--red)">${fmt(s.shortfall)} 모자라요</b>` : ' · 낼 수 있어요'}</p>` : ''}
     <div class="form"><div class="field"><label for="smPrice">가격</label><input id="smPrice" type="number" value="${s.price}" ${s.paid ? 'disabled' : ''}></div>
@@ -2114,10 +2119,10 @@ const WORK_ACT = {
   },
   prodSave: async () => {
     const r = await run('저장하는 중이에요', () => api('/api/admin/bank/product', { method: 'POST', body: { name: val('pdName'), rates: [0, 1, 2, 3, 4].map((i) => val('pdR' + i)) } }));
-    if (r) { closeModal(); toast(r.message); st.bank = null; loadAdmBank(); }
+    if (r) { closeModal(); toast(r.message); st.bank = null; st.adm.bank = null; loadBank(); }
   },
   prodDel: (d) => openModal(`<h3>이 상품을 없앨까요?</h3><p>이미 맡긴 예금은 그대로 유지돼요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="prodDelGo" data-days="${d.days}">없애기</button></div>`),
-  prodDelGo: async (d) => { const r = await run('처리하는 중이에요', () => api(`/api/admin/bank/product/${d.days}/delete`, { method: 'POST', body: {} })); if (r) { closeModal(); toast(r.message); st.bank = null; loadAdmBank(); } },
+  prodDelGo: async (d) => { const r = await run('처리하는 중이에요', () => api(`/api/admin/bank/product/${d.days}/delete`, { method: 'POST', body: {} })); if (r) { closeModal(); toast(r.message); st.bank = null; st.adm.bank = null; loadBank(); } },
   /* 보드 전체 삭제 */
   boardWipe: () => openModal(`<h3>보드를 모두 지울까요?</h3><p>모든 보드와 글·사진·댓글·추천이 사라지고 되돌릴 수 없어요. 확인하려면 <b>삭제</b>라고 적어 주세요.</p><div class="field"><input id="wipeWord" placeholder="삭제"></div><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="boardWipeGo">모두 지우기</button></div>`),
   boardWipeGo: async () => { const r = await run('지우는 중이에요', () => api('/api/admin/boards/wipe-all', { method: 'POST', body: { confirm: val('wipeWord') } })); if (r) { closeModal(); toast(r.message); st.boardId = ''; st.posts = null; loadBoards(); } },
@@ -2141,8 +2146,8 @@ document.addEventListener('change', async (e) => {
     : await run('저장하는 중이에요', () => api(`/api/admin/students/${id}/math`, { method: 'POST', body: { score: e.target.value } }));
   if (r) toast(r.message); 
   await loadAdmStudents();
-  if (f === 'job') { st.jobs = null; st.adm.assign = null; }
-  if (String(st.asId) === id) { st.info = null; loadInfo(); if (f === 'job') { st.w = {}; if (st.tab === 'jobs') loadJobs(); if (st.tab === 'work') loadWork(); } }
+  st.jobs = null; st.adm.assign = null; // 직업·수학 등급이 바뀌면 직업소와 배정표도 새로 읽어요
+  if (String(st.asId) === id) { st.info = null; st.w.info = null; loadInfo(); }
 });
 
 /* ====================================================================
