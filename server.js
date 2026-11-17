@@ -278,6 +278,8 @@ async function getJobs() {
 const jobVer = { all: Date.now(), by: {} };
 const bumpJob = (ids) => { const t = Date.now(); if (!ids) jobVer.all = t; else ids.forEach((id) => (jobVer.by[id] = t)); };
 const jobVerOf = (id) => `${jobVer.all}:${jobVer.by[id] || 0}`;
+// 화면 버전: index.html 내용으로 만든 값. 새로 배포되면 바뀌어서, 예전 화면을 열어 둔 학생 기기가 스스로 새로고침해요
+const BUILD = crypto.createHash('md5').update(require('fs').readFileSync(path.join(__dirname, 'public', 'index.html'))).digest('hex').slice(0, 10);
 const clearCaches = () => { settingsCache = { at: 0, value: null }; jobsCache = { at: 0, value: null }; clearNames(); bumpJob(); };
 
 // ----------------------------------------------------------------------
@@ -592,15 +594,15 @@ app.get('/api/info', auth, wrap(async (req, res) => {
 }));
 
 // 내 직업 번호표 (Firestore 읽기 없음)
-app.get('/api/jobver', auth, (req, res) => res.json({ v: req.user.role === 'student' ? jobVerOf(req.user.id) : '' }));
+app.get('/api/jobver', auth, (req, res) => res.json({ b: BUILD, v: req.user.role === 'student' ? jobVerOf(req.user.id) : '' }));
 
 // 내 권한 (교사 모드 버튼을 보여 줄지 결정)
 app.get('/api/whoami', auth, wrap(async (req, res) => {
-  if (req.user.role === 'teacher') return res.json({ media: mediaToken(req.user), role: 'teacher', perms: ['teacher', '상점관리', '국고관리', '신용관리', '은행관리', '자리관리', '제출승인', '벌금'] });
+  if (req.user.role === 'teacher') return res.json({ media: mediaToken(req.user), role: 'teacher', b: BUILD, perms: ['teacher', '상점관리', '국고관리', '신용관리', '은행관리', '자리관리', '제출승인', '벌금'] });
   const d = await db.collection('students').doc(req.user.id).get();
   const jobs = await getJobs();
   const job = d.exists ? jobs[d.data().jobId] : null;
-  res.json({ media: mediaToken(req.user), role: 'student', v: jobVerOf(req.user.id), id: req.user.id, name: d.exists ? d.data().name : '', perms: job ? job.perms || [] : [], job: job ? { id: job.id, name: job.name, desc: job.desc || '', daily: job.daily || [], periodic: job.periodic || [], reportable: !!job.reportable } : null });
+  res.json({ media: mediaToken(req.user), role: 'student', b: BUILD, v: jobVerOf(req.user.id), id: req.user.id, name: d.exists ? d.data().name : '', perms: job ? job.perms || [] : [], job: job ? { id: job.id, name: job.name, desc: job.desc || '', daily: job.daily || [], periodic: job.periodic || [], reportable: !!job.reportable } : null });
 }));
 
 // 최근 거래만 읽어요. Firestore 색인(ledger: studentId 오름차순 + at 내림차순)이 필요해요.

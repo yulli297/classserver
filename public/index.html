@@ -509,7 +509,7 @@ $('#logout').onclick = logout;
 async function enter() {
   const w = await api('/api/whoami');
   st.media = w.media || ''; st.mediaAt = Date.now(); st.role = w.role; st.perms = w.perms || []; st.myId = w.id || ''; st.myName = w.name || '';
-  st.jobV = w.v || ''; st.myJobId = w.job ? w.job.id : '';
+  st.jobV = w.v || ''; st.myJobId = w.job ? w.job.id : ''; st.build = w.b || '';
   if (isTeacher()) {
     const a = await api('/api/admin/students');
     st.adm.students = a;
@@ -536,7 +536,8 @@ async function checkJob() {
   if (jobChecking || !st.token || st.role !== 'student' || document.hidden || Date.now() - st.lastAct > IDLE_MS) return;
   jobChecking = true;
   try {
-    const v = (await api('/api/jobver')).v;
+    const r = await api('/api/jobver'), v = r.v;
+    if (r.b && st.build && r.b !== st.build) { location.reload(); return; } // 새 버전이 배포됐어요
     if (!v || v === st.jobV) return;
     const w = await api('/api/whoami');
     st.jobV = w.v || v;
@@ -1200,12 +1201,12 @@ const ACT = {
   },
   assignSave: async (d) => {
     const r = await run('저장하는 중이에요', () => api(`/api/admin/jobs/${d.id}/assign`, { method: 'POST', body: { ids: [...st.forms.assignSel] } }));
-    if (r) { closeModal(); toast(r.message); st.forms.assignJob = null; st.adm.assign = null; st.jobs = null; await loadAdmStudents(false); loadJobs(); loadInfo(); }
+    if (r) { closeModal(); toast(r.message); st.forms.assignJob = null; st.adm.assign = null; st.jobs = null; st.w = {}; await loadAdmStudents(false); loadJobs(); loadInfo(); }
   },
   jobsClear: () => openModal(`<h3>모든 직업을 비울까요?</h3><p>모든 학생의 직업이 없어져요.</p><div class="row-btn"><button class="btn gray" data-act="close">그만두기</button><button class="btn red" data-act="jobsClearGo">비우기</button></div>`),
   jobsClearGo: async () => {
     const r = await run('처리 중이에요', () => api('/api/admin/jobs/clear', { method: 'POST', body: {} }));
-    closeModal(); if (r) { toast(r.message); st.adm.assign = null; st.jobs = null; await loadAdmStudents(false); loadJobs(); loadInfo(); }
+    closeModal(); if (r) { toast(r.message); st.adm.assign = null; st.jobs = null; st.w = {}; await loadAdmStudents(false); loadJobs(); loadInfo(); }
   },
   /* 기본정보 교사 모드 */
   stuDel: (d) => {
@@ -2139,7 +2140,8 @@ document.addEventListener('change', async (e) => {
     : await run('저장하는 중이에요', () => api(`/api/admin/students/${id}/math`, { method: 'POST', body: { score: e.target.value } }));
   if (r) toast(r.message); 
   await loadAdmStudents();
-  if (String(st.asId) === id) { st.info = null; loadInfo(); }
+  if (f === 'job') { st.jobs = null; st.adm.assign = null; }
+  if (String(st.asId) === id) { st.info = null; loadInfo(); if (f === 'job') { st.w = {}; if (st.tab === 'jobs') loadJobs(); if (st.tab === 'work') loadWork(); } }
 });
 
 /* ====================================================================
