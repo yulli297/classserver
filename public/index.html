@@ -509,6 +509,7 @@ $('#logout').onclick = logout;
 async function enter() {
   const w = await api('/api/whoami');
   st.media = w.media || ''; st.mediaAt = Date.now(); st.role = w.role; st.perms = w.perms || []; st.myId = w.id || ''; st.myName = w.name || '';
+  st.jobV = w.v || ''; st.myJobId = w.job ? w.job.id : '';
   if (isTeacher()) {
     const a = await api('/api/admin/students');
     st.adm.students = a;
@@ -525,6 +526,38 @@ async function enter() {
   goTab('info', true);
   loadInfo();
 }
+/* 직업 배정 실시간 반영 (학생 화면)
+   15초마다 서버에 '내 직업 번호표'만 물어봐요. 서버는 Firestore를 읽지 않고 기억만 보고 답해요.
+   번호표가 바뀌면 그때만 직업 정보를 새로 읽어요. 화면이 숨겨져 있거나 10분 넘게 아무것도 안 하면 묻지 않아요(서버가 잠들 수 있게). */
+const JOB_POLL_MS = 15000, IDLE_MS = 10 * 60 * 1000;
+st.lastAct = Date.now();
+let jobChecking = false;
+async function checkJob() {
+  if (jobChecking || !st.token || st.role !== 'student' || document.hidden || Date.now() - st.lastAct > IDLE_MS) return;
+  jobChecking = true;
+  try {
+    const v = (await api('/api/jobver')).v;
+    if (!v || v === st.jobV) return;
+    const w = await api('/api/whoami');
+    st.jobV = w.v || v;
+    const newJob = w.job ? w.job.id : '';
+    const permsChanged = (w.perms || []).join(',') !== st.perms.join(',');
+    if (newJob === st.myJobId && !permsChanged) return;
+    const jobChanged = newJob !== st.myJobId;
+    st.perms = w.perms || []; st.myJobId = newJob;
+    st.info = null; st.jobs = null; st.w = {};
+    renderAll(); loadInfo();
+    if (st.tab === 'jobs') loadJobs();
+    if (st.tab === 'work') loadWork();
+    if (jobChanged) toast(w.job ? `내 직업이 '${w.job.name}'(으)로 바뀌었어요` : '직업이 비워졌어요');
+  } catch (e) {} finally { jobChecking = false; }
+}
+setInterval(checkJob, JOB_POLL_MS);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkJob(); });
+['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach((ev) => addEventListener(ev, () => {
+  const wasIdle = Date.now() - st.lastAct > IDLE_MS; st.lastAct = Date.now(); if (wasIdle) checkJob();
+}, { passive: true }));
+
 function fillAsSel() {
   const sel = $('#asSel');
   sel.hidden = !isTeacher();

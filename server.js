@@ -273,7 +273,12 @@ async function getJobs() {
   jobsCache = { at: Date.now(), value };
   return value;
 }
-const clearCaches = () => { settingsCache = { at: 0, value: null }; jobsCache = { at: 0, value: null }; clearNames(); };
+// 직업 배정 실시간 반영: 학생 화면이 몇 초마다 '내 직업 번호표'만 물어봐요 (서버 메모리만 보고 Firestore는 읽지 않아요)
+//   번호표가 바뀌었을 때만 학생 화면이 직업 정보를 한 번 새로 읽어요. 서버가 잠들었다 깨면 모두 한 번씩 새로 읽어요.
+const jobVer = { all: Date.now(), by: {} };
+const bumpJob = (ids) => { const t = Date.now(); if (!ids) jobVer.all = t; else ids.forEach((id) => (jobVer.by[id] = t)); };
+const jobVerOf = (id) => `${jobVer.all}:${jobVer.by[id] || 0}`;
+const clearCaches = () => { settingsCache = { at: 0, value: null }; jobsCache = { at: 0, value: null }; clearNames(); bumpJob(); };
 
 // ----------------------------------------------------------------------
 //  읽기 줄이기 (Firestore 무료 한도 보호)
@@ -586,13 +591,16 @@ app.get('/api/info', auth, wrap(async (req, res) => {
   res.json(await buildInfo(targetId(req)));
 }));
 
+// 내 직업 번호표 (Firestore 읽기 없음)
+app.get('/api/jobver', auth, (req, res) => res.json({ v: req.user.role === 'student' ? jobVerOf(req.user.id) : '' }));
+
 // 내 권한 (교사 모드 버튼을 보여 줄지 결정)
 app.get('/api/whoami', auth, wrap(async (req, res) => {
   if (req.user.role === 'teacher') return res.json({ media: mediaToken(req.user), role: 'teacher', perms: ['teacher', '상점관리', '국고관리', '신용관리', '은행관리', '자리관리', '제출승인', '벌금'] });
   const d = await db.collection('students').doc(req.user.id).get();
   const jobs = await getJobs();
   const job = d.exists ? jobs[d.data().jobId] : null;
-  res.json({ media: mediaToken(req.user), role: 'student', id: req.user.id, name: d.exists ? d.data().name : '', perms: job ? job.perms || [] : [], job: job ? { id: job.id, name: job.name, desc: job.desc || '', daily: job.daily || [], periodic: job.periodic || [], reportable: !!job.reportable } : null });
+  res.json({ media: mediaToken(req.user), role: 'student', v: jobVerOf(req.user.id), id: req.user.id, name: d.exists ? d.data().name : '', perms: job ? job.perms || [] : [], job: job ? { id: job.id, name: job.name, desc: job.desc || '', daily: job.daily || [], periodic: job.periodic || [], reportable: !!job.reportable } : null });
 }));
 
 // 최근 거래만 읽어요. Firestore 색인(ledger: studentId 오름차순 + at 내림차순)이 필요해요.
@@ -1197,13 +1205,14 @@ app.post('/api/admin/jobs/:id/assign', guard('teacher'), wrap(async (req, res) =
   if (job.capacity && ids.length > job.capacity) throw new UserError(`${job.name}은(는) 정원 ${job.capacity}명까지예요`);
   const sSnap = await db.collection('students').get();
   const valid = new Set(sSnap.docs.map((d) => d.id));
-  const batch = db.batch();
+  const batch = db.batch(), changed = [];
   sSnap.docs.forEach((d) => {
     const mine = ids.includes(d.id) && valid.has(d.id);
-    if (mine && d.data().jobId !== job.id) batch.update(d.ref, { jobId: job.id });
-    else if (!mine && d.data().jobId === job.id) batch.update(d.ref, { jobId: '' });
+    if (mine && d.data().jobId !== job.id) { batch.update(d.ref, { jobId: job.id }); changed.push(d.id); }
+    else if (!mine && d.data().jobId === job.id) { batch.update(d.ref, { jobId: '' }); changed.push(d.id); }
   });
   await batch.commit();
+  bumpJob(changed);
   res.json({ ok: true, message: `${job.name} 배정을 저장했어요 (${ids.length}명)` });
 }));
 app.post('/api/admin/jobs/clear', guard('teacher'), wrap(async (req, res) => {
@@ -1211,6 +1220,7 @@ app.post('/api/admin/jobs/clear', guard('teacher'), wrap(async (req, res) => {
   const batch = db.batch();
   sSnap.docs.forEach((d) => { if (d.data().jobId) batch.update(d.ref, { jobId: '' }); });
   await batch.commit();
+  bumpJob();
   res.json({ ok: true, message: '모든 학생의 직업을 비웠어요' });
 }));
 
@@ -1365,6 +1375,7 @@ app.post('/api/admin/students/:id/job', guard('teacher'), wrap(async (req, res) 
     }
   }
   await db.collection('students').doc(req.params.id).update({ jobId });
+  bumpJob([req.params.id]);
   res.json({ ok: true, message: jobId ? `${jobs[jobId].name}(으)로 배정했어요` : '직업을 비웠어요' });
 }));
 
